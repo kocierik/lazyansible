@@ -2,28 +2,28 @@ package main
 
 import (
 	"fmt"
-
-	tea "github.com/charmbracelet/bubbletea"
-
 	"os"
 
-	// "github.com/charmbracelet/lipgloss"
-
-	// "github.com/kocierik/lazyansible/src/handlers"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kocierik/lazyansible/src/handlers"
-	"github.com/kocierik/lazyansible/src/models"
-	// "github.com/kocierik/lazyansible/src/utils"
-	// "github.com/kocierik/lazyansible/src/utils"
 )
 
 func main() {
-	h := handlers.New(&models.Model{Content: "ciao"})
-	m := h.InitialModel()
-	model := handlers.New(&m)
-	p := tea.NewProgram(model, tea.WithAltScreen(),
-		tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error starting program: %v", err)
+
+	// h := handlers.New(models.MainModel{}, models.ListModel{}, models.PagerModel{}, 0)
+	listModel := handlers.ListModel{}
+	pagerModel := handlers.PagerModel{Content: ""}
+	listModel = listModel.InitializeListModel()
+	pagerModel = pagerModel.InitializePagerModel()
+
+	mainModel := handlers.MainModel{
+		ListView:  listModel,
+		PagerView: pagerModel,
+		State:     0,
+	}
+
+	if _, err := tea.NewProgram(mainModel).Run(); err != nil {
+		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
 }

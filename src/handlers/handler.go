@@ -1,14 +1,16 @@
 package handlers
 
-import (
-	// tea "github.com/charmbracelet/bubbletea"
-	"github.com/kocierik/lazyansible/src/models"
-)
+// tea "github.com/charmbracelet/bubbletea"
 
-type handler struct {
-	Model *models.Model
+type SessionState uint
+
+type MainModel struct {
+	// MainModel models.MainModel
+	ListView  ListModel
+	PagerView PagerModel
+	State     SessionState
 }
 
-func New(model *models.Model) handler {
-	return handler{model}
-}
+// func New(model models.MainModel, list models.ListModel, pager models.PagerModel, state SessionState) handler {
+// 	return handler{model, list, pager, 0}
+// }

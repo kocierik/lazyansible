@@ -1,15 +1,32 @@
 package models
 
 import (
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
-type Model struct {
-	Choices    []string         // items on the to-do list
-	Cursor     int              // which to-do list item our cursor is pointing at
-	Selected   map[int]struct{} // which to-do items are selected
-	Content    string
-	FileCursor string
-	Ready      bool
-	Viewport   viewport.Model
+type SessionState uint
+
+type MainModel struct {
+	State      SessionState
+	ListModel  ListModel
+	PagerModel PagerModel
 }
+
+type ListModel struct {
+	List     list.Model
+	Choice   string
+	Quitting bool
+}
+
+type PagerModel struct {
+	Content  string
+	Ready    bool
+	Viewport viewport.Model
+}
+
+// type PagerModel struct {
+// 	Content  string
+// 	Ready    bool
+// 	Viewport viewport.Model
+// }
