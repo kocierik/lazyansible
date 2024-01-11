@@ -8,9 +8,9 @@ import (
 type SessionState uint
 
 type MainModel struct {
-	State      SessionState
 	ListModel  ListModel
-	PagerModel PagerModel
+	PagerModel Model
+	State      SessionState
 }
 
 type ListModel struct {
@@ -19,14 +19,8 @@ type ListModel struct {
 	Quitting bool
 }
 
-type PagerModel struct {
+type Model struct {
 	Content  string
 	Ready    bool
 	Viewport viewport.Model
 }
-
-// type PagerModel struct {
-// 	Content  string
-// 	Ready    bool
-// 	Viewport viewport.Model
-// }

@@ -9,10 +9,8 @@ import (
 )
 
 func main() {
-
-	// h := handlers.New(models.MainModel{}, models.ListModel{}, models.PagerModel{}, 0)
 	listModel := handlers.ListModel{}
-	pagerModel := handlers.PagerModel{Content: ""}
+	pagerModel := handlers.Model{}
 	listModel = listModel.InitializeListModel()
 	pagerModel = pagerModel.InitializePagerModel()
 
@@ -22,7 +20,10 @@ func main() {
 		State:     0,
 	}
 
-	if _, err := tea.NewProgram(mainModel).Run(); err != nil {
+	if _, err := tea.NewProgram(
+		mainModel,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}

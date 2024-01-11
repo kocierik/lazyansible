@@ -13,11 +13,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type PagerModel struct {
-	Content  string
-	Ready    bool
-	Viewport viewport.Model
-}
+// type PagerModel struct {
+// 	Content  string
+// 	Ready    bool
+// 	Viewport viewport.Model
+// }
 
 // You generally won't need this unless you're processing stuff with
 // complicated ANSI escape sequences. Turn it on if you notice flickering.
@@ -41,11 +41,17 @@ var (
 	}()
 )
 
-func (h PagerModel) Init() tea.Cmd {
+type Model struct {
+	content  string
+	ready    bool
+	viewport viewport.Model
+}
+
+func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func (h PagerModel) Update(msg tea.Msg) (PagerModel, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -54,68 +60,68 @@ func (h PagerModel) Update(msg tea.Msg) (PagerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if k := msg.String(); k == "ctrl+c" || k == "q" || k == "esc" {
-			return h, tea.Quit
+			return m, tea.Quit
 		}
 
 	case tea.WindowSizeMsg:
-		headerHeight := lipgloss.Height(h.headerView())
-		footerHeight := lipgloss.Height(h.footerView())
+		headerHeight := lipgloss.Height(m.headerView())
+		footerHeight := lipgloss.Height(m.footerView())
 		verticalMarginHeight := headerHeight + footerHeight
 
-		if !h.Ready {
-			// Since this program is using the full size of the Viewport we
+		if !m.ready {
+			// Since this program is using the full size of the viewport we
 			// need to wait until we've received the window dimensions before
-			// we can initialize the Viewport. The initial dimensions come in
+			// we can initialize the viewport. The initial dimensions come in
 			// quickly, though asynchronously, which is why we wait for them
 			// here.
-			h.Viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
-			h.Viewport.YPosition = headerHeight
-			h.Viewport.HighPerformanceRendering = useHighPerformanceRenderer
-			h.Viewport.SetContent(h.Content)
-			h.Ready = true
+			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
+			m.viewport.YPosition = headerHeight
+			m.viewport.HighPerformanceRendering = useHighPerformanceRenderer
+			m.viewport.SetContent(m.content)
+			m.ready = true
 
 			// This is only necessary for high performance rendering, which in
 			// most cases you won't need.
 			//
-			// Render the Viewport one line below the header.
-			h.Viewport.YPosition = headerHeight + 1
+			// Render the viewport one line below the header.
+			m.viewport.YPosition = headerHeight + 1
 		} else {
-			h.Viewport.Width = msg.Width
-			h.Viewport.Height = msg.Height - verticalMarginHeight
+			m.viewport.Width = msg.Width
+			m.viewport.Height = msg.Height - verticalMarginHeight
 		}
 
 		if useHighPerformanceRenderer {
-			// Render (or re-render) the whole Viewport. Necessary both to
-			// initialize the Viewport and when the window is resized.
+			// Render (or re-render) the whole viewport. Necessary both to
+			// initialize the viewport and when the window is resized.
 			//
 			// This is needed for high-performance rendering only.
-			cmds = append(cmds, viewport.Sync(h.Viewport))
+			cmds = append(cmds, viewport.Sync(m.viewport))
 		}
 	}
 
-	// Handle keyboard and mouse events in the Viewport
-	h.Viewport, cmd = h.Viewport.Update(msg)
+	// Handle keyboard and mouse events in the viewport
+	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
 
-	return h, tea.Batch(cmds...)
+	return m, tea.Batch(cmds...)
 }
 
-func (h PagerModel) View() string {
-	if !h.Ready {
+func (m Model) View() string {
+	if !m.ready {
 		return "\n  Initializing..."
 	}
-	return fmt.Sprintf("%s\n%s\n%s", h.headerView(), h.Viewport.View(), h.footerView())
+	return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.viewport.View(), m.footerView())
 }
 
-func (h PagerModel) headerView() string {
+func (m Model) headerView() string {
 	title := titleStylePager.Render("Mr. Pager")
-	line := strings.Repeat("─", max(0, h.Viewport.Width-lipgloss.Width(title)))
+	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(title)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
 }
 
-func (h PagerModel) footerView() string {
-	info := infoStylePager.Render(fmt.Sprintf("%3.f%%", h.Viewport.ScrollPercent()*100))
-	line := strings.Repeat("─", max(0, h.Viewport.Width-lipgloss.Width(info)))
+func (m Model) footerView() string {
+	info := infoStylePager.Render(fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100))
+	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(info)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
 }
 
@@ -125,13 +131,15 @@ func max(a, b int) int {
 	}
 	return b
 }
-
-func (h PagerModel) InitializePagerModel() PagerModel {
-	// Load some text for our Viewport
-	content, err := os.ReadFile("main.go")
+func ReadFile(filename string) string {
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Println("could not load file:", err)
 		os.Exit(1)
 	}
-	return PagerModel{Content: string(content)}
+	return string(content)
+}
+
+func (h Model) InitializePagerModel() Model {
+	return Model{content: ReadFile("main.go"), ready: true}
 }
