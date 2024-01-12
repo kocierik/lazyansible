@@ -9,7 +9,7 @@ type SessionState uint
 
 type MainModel struct {
 	ListModel  ListModel
-	PagerModel Model
+	PagerModel PageModel
 	State      SessionState
 }
 
@@ -19,7 +19,7 @@ type ListModel struct {
 	Quitting bool
 }
 
-type Model struct {
+type PageModel struct {
 	Content  string
 	Ready    bool
 	Viewport viewport.Model

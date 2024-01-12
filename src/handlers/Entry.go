@@ -43,6 +43,8 @@ func (h MainModel) View() string {
 	var view string
 	SelectedStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("170"))
 	paddingStyle := lipgloss.NewStyle().Padding(2)
+	h.PagerView = h.PagerView.InitializePagerModel()
+
 	switch h.State {
 	case utils.ListModelState:
 		view = lipgloss.JoinHorizontal(lipgloss.Top, SelectedStyle.Render(h.ListView.View()), paddingStyle.Render(h.PagerView.View()))
@@ -52,8 +54,6 @@ func (h MainModel) View() string {
 
 	s := lipgloss.JoinHorizontal(lipgloss.Top,
 		view,
-		// h.ListView.View(),
-		// h.PagerView.View(),
 	)
 	return s
 }

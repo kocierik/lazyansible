@@ -7,7 +7,7 @@ import (
 type MainModel struct {
 	// MainModel models.MainModel
 	ListView  ListModel
-	PagerView Model
+	PagerView PagerModel
 	State     models.SessionState
 }
 
