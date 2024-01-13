@@ -16,7 +16,7 @@ type ListModel struct {
 	Quitting bool
 }
 
-const listHeight = 14
+const listHeight = 25
 
 var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2)

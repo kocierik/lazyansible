@@ -1,8 +1,5 @@
 package handlers
 
-// An example program demonstrating the pager component from the Bubbles
-// component library.
-
 import (
 	"fmt"
 	"os"
@@ -99,7 +96,7 @@ func (h PagerModel) InitializePagerModel() PagerModel {
 		os.Exit(1)
 	}
 	h.viewport.SetContent(string(content))
-	h.viewport.Height = 20
+	h.viewport.Height = 19
 	h.viewport.Width = 70
 	return PagerModel{content: string(content), ready: true, viewport: h.viewport}
 }

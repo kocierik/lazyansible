@@ -6,6 +6,8 @@ import (
 )
 
 const (
-	ListModelState models.SessionState = iota
+	// ListModelState models.SessionState = iota
+	FilePickerState models.SessionState = iota
 	PagerModelState
+	ListHostState
 )

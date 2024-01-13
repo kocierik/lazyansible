@@ -10,20 +10,26 @@ import (
 )
 
 func main() {
-	listModel := handlers.ListModel{}
+
 	pagerModel := handlers.PagerModel{}
-	listModel = listModel.InitializeListModel()
+	filePickerModel := handlers.FilePickerModel{}
+	listHostModel := handlers.ListHostModel{}
+
+	filePickerModel = filePickerModel.InitializeFilePicker()
 	pagerModel = pagerModel.InitializePagerModel()
+	listHostModel = listHostModel.InitialModel()
 
 	mainModel := handlers.MainModel{
-		ListView:  listModel,
-		PagerView: pagerModel,
-		State:     utils.ListModelState,
+		FilePickerView: filePickerModel,
+		PagerView:      pagerModel,
+		ListHostView:   listHostModel,
+		State:          utils.FilePickerState,
 	}
+
 	if _, err := tea.NewProgram(
 		mainModel,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion()).Run(); err != nil {
+		tea.WithMouseCellMotion(), tea.WithOutput(os.Stderr)).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}

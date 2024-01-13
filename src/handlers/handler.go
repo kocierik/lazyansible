@@ -5,12 +5,11 @@ import (
 )
 
 type MainModel struct {
-	// MainModel models.MainModel
-	ListView  ListModel
-	PagerView PagerModel
-	State     models.SessionState
+	ListView       ListModel
+	FilePickerView FilePickerModel
+	PagerView      PagerModel
+	ListHostView   ListHostModel
+	State          models.SessionState
+	Height         int
+	Width          int
 }
-
-// func New(model models.MainModel, list models.ListModel, pager models.PagerModel, state SessionState) handler {
-// 	return handler{model, list, pager, 0}
-// }
