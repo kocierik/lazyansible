@@ -10,8 +10,8 @@ type SessionState uint
 
 type MainModel struct {
 	ListModel       ListModel
-	FilePickerModel FilePickerModel
-	PagerModel      PageModel
+	FilePickerModel ModelFilePicker
+	PagerModel      ModelPager
 	State           SessionState
 }
 
@@ -21,14 +21,14 @@ type ListModel struct {
 	Quitting bool
 }
 
-type FilePickerModel struct {
+type ModelFilePicker struct {
 	Filepicker   filepicker.Model
 	SelectedFile string
 	Quitting     bool
 	Err          error
 }
 
-type PageModel struct {
+type ModelPager struct {
 	Content  string
 	Ready    bool
 	Viewport viewport.Model

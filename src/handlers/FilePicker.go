@@ -44,11 +44,16 @@ func (m FilePickerModel) Update(msg tea.Msg) (FilePickerModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.Filepicker, cmd = m.Filepicker.Update(msg)
 
+	// Did the user select a file?
 	if didSelect, path := m.Filepicker.DidSelectFile(msg); didSelect {
+		// Get the path of the selected file.
 		m.SelectedFile = path
 	}
 
+	// Did the user select a disabled file?
+	// This is only necessary to display an error to the user.
 	if didSelect, path := m.Filepicker.DidSelectDisabledFile(msg); didSelect {
+		// Let's clear the selectedFile and display an error.
 		m.Err = errors.New(path + " is not valid.")
 		m.SelectedFile = ""
 		return m, tea.Batch(cmd, clearErrorAfter(2*time.Second))
@@ -61,10 +66,8 @@ func (m FilePickerModel) View() string {
 	if m.Quitting {
 		return ""
 	}
-
 	var s strings.Builder
 	s.WriteString("\n  ")
-
 	if m.Err != nil {
 		s.WriteString(m.Filepicker.Styles.DisabledFile.Render(m.Err.Error()))
 	} else if m.SelectedFile == "" {

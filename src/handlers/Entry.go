@@ -41,6 +41,10 @@ func (h MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			h.State = 0
 		}
+	default:
+		h.FilePickerView, cmd = h.FilePickerView.Update(msg)
+		// h.FilePickerView.Filepicker, cmd = h.FilePickerView.Filepicker.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return h, tea.Batch(cmds...)
