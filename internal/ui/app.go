@@ -31,7 +31,6 @@ type AppMode int
 
 const (
 	AppModeNormal AppMode = iota
-	AppModeVarsBrowser
 	AppModeAdHoc
 	AppModeExtraVars
 	AppModeTagsBrowser
@@ -73,7 +72,6 @@ type App struct {
 	mode    AppMode
 
 	// v0.2 overlays.
-	varsOverlay      *VarsOverlay
 	adhocOverlay     *AdHocOverlay
 	extraVarsOverlay *ExtraVarsOverlay
 	tagsOverlay      *TagsOverlay
@@ -138,8 +136,6 @@ func New(cfg Config) *App {
 	a.statusPanel = panels.NewStatusPanel(0, 0)
 	a.logsPanel = panels.NewLogsPanel(0, 0)
 
-	a.varsOverlay = newVarsOverlay(0, 0)
-	a.varsOverlay.SetWorkDir(inventoryBaseDir(cfg))
 	a.adhocOverlay = newAdHocOverlay(0, 0)
 	a.extraVarsOverlay = newExtraVarsOverlay(0, 0)
 	a.tagsOverlay = newTagsOverlay(0, 0)
@@ -188,9 +184,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Mouse click: focus the panel under the cursor.
-	if mouse, ok := msg.(tea.MouseMsg); ok && mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
-		a.handleMouseClick(mouse.X, mouse.Y)
+	// Mouse events: only handle left-click for panel focus; discard everything
+	// else (motion, scroll, hover) so mouse movement never triggers a full
+	// rerender and never reaches text-input overlays (which would cause lag).
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		if mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
+			if a.mode == AppModeNormal {
+				a.handleMouseClick(mouse.X, mouse.Y)
+			}
+		}
 		return a, nil
 	}
 
@@ -342,25 +344,6 @@ func (a *App) updateNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "Z":
 		a.logsFullscreen = !a.logsFullscreen
 		a.resizePanels()
-
-	// ── v0.2 overlays ─────────────────────────────────────────────────────
-
-	case "v":
-		if a.focused == core.PanelInventory && a.inventory != nil {
-			if host := a.invPanel.SelectedHost(); host != "" {
-				if h, ok := a.inventory.Hosts[host]; ok {
-					a.varsOverlay.SetHost(h)
-					a.mode = AppModeVarsBrowser
-					return a, nil
-				}
-			} else if group := a.invPanel.SelectedGroup(); group != "" {
-				if g, ok := a.inventory.Groups[group]; ok {
-					a.varsOverlay.SetGroup(g)
-					a.mode = AppModeVarsBrowser
-					return a, nil
-				}
-			}
-		}
 
 	case "!":
 		target := ""
@@ -578,15 +561,19 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// isEnter is true when the message is the Enter key — the only key that
+	// overlays use to emit confirmation commands. evalCmd is called ONLY in
+	// this case so that the blink-cursor command returned by textinput on
+	// every regular keypress is never executed synchronously (it would block
+	// ~530 ms and make typing feel laggy).
+	isEnter := isEnterKey(msg)
+
 	var cmd tea.Cmd
 	switch a.mode {
 
-	case AppModeVarsBrowser:
-		cmd = a.varsOverlay.Update(msg)
-
 	case AppModeAdHoc:
 		cmd = a.adhocOverlay.Update(msg)
-		if cmd != nil {
+		if isEnter && cmd != nil {
 			if result, ok := evalCmd(cmd).(AdHocRunMsg); ok {
 				a.mode = AppModeNormal
 				return a, a.startAdHoc(result.Opts)
@@ -595,7 +582,7 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AppModeExtraVars:
 		cmd = a.extraVarsOverlay.Update(msg)
-		if cmd != nil {
+		if isEnter && cmd != nil {
 			if ev, ok := evalCmd(cmd).(ExtraVarsConfirmedMsg); ok {
 				a.extraVarsRaw = ev.Raw
 				a.pbPanel.SetExtraVars(ev.Raw)
@@ -611,7 +598,7 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AppModeTagsBrowser:
 		cmd = a.tagsOverlay.Update(msg)
-		if cmd != nil {
+		if isEnter && cmd != nil {
 			if tc, ok := evalCmd(cmd).(TagsConfirmedMsg); ok {
 				a.pbPanel.SetActiveTags(tc.Tags)
 				if tc.Tags != "" {
@@ -626,7 +613,7 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AppModeVault:
 		cmd = a.vaultOverlay.Update(msg)
-		if cmd != nil {
+		if isEnter && cmd != nil {
 			if vp, ok := evalCmd(cmd).(VaultPasswordMsg); ok {
 				a.vaultPassword = vp.Password
 				if vp.Password != "" {
@@ -640,6 +627,7 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case AppModeHistory:
+		// History is a pure list — no textinput, evalCmd is safe on all keys.
 		cmd = a.historyOverlay.Update(msg)
 		if cmd != nil {
 			if hr, ok := evalCmd(cmd).(HistoryRunMsg); ok {
@@ -668,9 +656,9 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AppModeSSHProfile:
 		cmd = a.sshProfileOverlay.Update(msg)
-		if cmd != nil {
-			result := evalCmd(cmd)
-			if sp, ok := result.(SSHProfileAppliedMsg); ok {
+		// SSHProfile has a form with textinputs; only eval on Enter.
+		if isEnter && cmd != nil {
+			if sp, ok := evalCmd(cmd).(SSHProfileAppliedMsg); ok {
 				a.sshExtraVars = sp.ExtraVars
 				if sp.ExtraVars != "" {
 					a.statusMsg = "SSH profile applied"
@@ -683,12 +671,12 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case AppModeGalaxy:
-		// Galaxy overlay may emit async commands (load/install).
+		// Galaxy overlay emits async commands (load/install) — returned as-is.
 		cmd = a.galaxyOverlay.Update(msg)
 
 	case AppModeRunProfiles:
 		cmd = a.runProfilesOverlay.Update(msg)
-		if cmd != nil {
+		if isEnter && cmd != nil {
 			if rp, ok := evalCmd(cmd).(RunProfileLoadMsg); ok {
 				a.applyRunProfile(rp.Profile)
 				a.mode = AppModeNormal
@@ -698,6 +686,7 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case AppModePlaybookViewer:
+		// Viewer has no textinput; evalCmd is safe on all keys.
 		cmd = a.pbViewerOverlay.Update(msg)
 		if cmd != nil {
 			if _, ok := evalCmd(cmd).(pbViewerCloseMsg); ok {
@@ -710,8 +699,15 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-// evalCmd executes a Cmd synchronously and returns the Msg. Used only for
-// overlay result inspection (not for long-running cmds).
+// isEnterKey reports whether msg is a key-press of Enter.
+func isEnterKey(msg tea.Msg) bool {
+	k, ok := msg.(tea.KeyMsg)
+	return ok && k.String() == "enter"
+}
+
+// evalCmd executes a Cmd synchronously and returns the Msg.
+// Only call this when you are certain the command returns immediately
+// (e.g. overlay confirmation commands triggered by Enter).
 func evalCmd(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {
 		return nil
@@ -743,8 +739,6 @@ func (a *App) View() string {
 	switch a.mode {
 	case AppModeHelp:
 		return a.renderOverlay(a.helpContent())
-	case AppModeVarsBrowser:
-		return a.renderOverlay(a.varsOverlay.View())
 	case AppModeAdHoc:
 		return a.renderOverlay(a.adhocOverlay.View())
 	case AppModeExtraVars:
@@ -786,7 +780,7 @@ func (a *App) baseView() string {
 	var logsView string
 	if a.logsFullscreen {
 		logsView = strings.TrimRight(
-			a.wrapPanel(a.logsPanel.View(), a.width, available, true), "\n")
+			a.wrapPanel(a.logsPanel.View(), a.width, available, true, "Logs"), "\n")
 		return forceHeight(header+"\n"+logsView+"\n"+statusBar, a.height)
 	}
 
@@ -802,15 +796,15 @@ func (a *App) baseView() string {
 	statusW := a.width - invW - pbW
 
 	invView := strings.TrimRight(
-		a.wrapPanel(a.invPanel.View(), invW, topH, a.focused == core.PanelInventory), "\n")
+		a.wrapPanel(a.invPanel.View(), invW, topH, a.focused == core.PanelInventory, "Inventory"), "\n")
 	pbView := strings.TrimRight(
-		a.wrapPanel(a.pbPanel.View(), pbW, topH, a.focused == core.PanelPlaybooks), "\n")
+		a.wrapPanel(a.pbPanel.View(), pbW, topH, a.focused == core.PanelPlaybooks, "Playbooks"), "\n")
 	statusView := strings.TrimRight(
-		a.wrapPanel(a.statusPanel.View(), statusW, topH, a.focused == core.PanelStatus), "\n")
+		a.wrapPanel(a.statusPanel.View(), statusW, topH, a.focused == core.PanelStatus, "Status"), "\n")
 	topRow := strings.TrimRight(
 		lipgloss.JoinHorizontal(lipgloss.Top, invView, pbView, statusView), "\n")
 	logsView = strings.TrimRight(
-		a.wrapPanel(a.logsPanel.View(), a.width, botH, a.focused == core.PanelLogs), "\n")
+		a.wrapPanel(a.logsPanel.View(), a.width, botH, a.focused == core.PanelLogs, "Logs"), "\n")
 
 	// Assemble and guarantee exactly a.height rows so alt-screen never scrolls.
 	return forceHeight(header+"\n"+topRow+"\n"+logsView+"\n"+statusBar, a.height)
@@ -821,8 +815,8 @@ func (a *App) renderOverlay(content string) string {
 }
 
 // wrapPanel wraps content in a bordered panel box of exactly w×h terminal cells.
-// lipgloss Width/Height set the inner content size; border adds 2h + (border+pad) 4w.
-func (a *App) wrapPanel(content string, w, h int, focused bool) string {
+// title is injected into the top border line (e.g. "╭─ Inventory ───╮").
+func (a *App) wrapPanel(content string, w, h int, focused bool, title string) string {
 	// Inner dimensions: width-4 (border 2 + padding 2), height-2 (border top+bottom).
 	innerW := w - 4
 	innerH := h - 2
@@ -832,16 +826,109 @@ func (a *App) wrapPanel(content string, w, h int, focused bool) string {
 	if innerH < 1 {
 		innerH = 1
 	}
-	// Hard-clip the content to innerH lines BEFORE handing it to lipgloss.
-	// lipgloss.Height() is a MINIMUM, not a maximum: if content is taller than
-	// innerH the panel overflows, pushing the header off screen.
 	content = clipLines(content, innerH)
 
 	style := panelStyle.Width(innerW).Height(innerH)
 	if focused {
 		style = panelFocusedStyle.Width(innerW).Height(innerH)
 	}
-	return style.Render(content)
+	rendered := style.Render(content)
+
+	// Inject the panel title into the top border line.
+	if title != "" {
+		rendered = injectBorderTitle(rendered, title, focused)
+	}
+	return rendered
+}
+
+// injectBorderTitle replaces the start of the top border dash-run with the title text.
+// Input:  ╭──────────────────────────────╮
+// Output: ╭─ Inventory ─────────────────╮
+func injectBorderTitle(box, title string, focused bool) string {
+	lines := strings.SplitN(box, "\n", 2)
+	if len(lines) == 0 {
+		return box
+	}
+	topLine := lines[0]
+
+	// Strip ANSI codes to measure and find the dash run.
+	plain := stripANSI(topLine)
+	// The rounded top border starts with ╭ (3 bytes) followed by ─ runes.
+	// We want to replace "╭─" with "╭─ Title ─".
+	titleText := " " + title + " "
+
+	// Find position of first ─ in the plain string.
+	dashStart := strings.Index(plain, "─")
+	if dashStart < 0 {
+		return box // not a bordered box we recognise
+	}
+
+	// Build the replacement top line by working on the visual plain text,
+	// then re-applying the border colour.
+	var titleStyled string
+	if focused {
+		titleStyled = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7C3AED")).Bold(true).Render(titleText)
+	} else {
+		titleStyled = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4B5563")).Render(titleText)
+	}
+
+	// The corner ╭ in the plain string is 3 bytes wide (UTF-8).
+	// Replace "╭─" with "╭─<titleStyled>".
+	// We need the total visual width to stay the same, so we count how many
+	// dashes the title consumes and remove them from the plain run.
+	titleVisualW := lipgloss.Width(titleStyled)
+	// Count how many ─ runes are in the original plain top border.
+	totalDashes := strings.Count(plain, "─")
+	// We emit: ╭ + ─ (1 explicit) + titleStyled + remainingDashes + ╮
+	// To match original width (corners + totalDashes) we need:
+	//   1 + 1 + titleVisualW + remainingDashes + 1 == 2 + totalDashes
+	//   remainingDashes = totalDashes - titleVisualW - 1
+	remainingDashes := totalDashes - titleVisualW - 1
+	if remainingDashes < 1 {
+		// Title too wide to fit; skip injection.
+		return box
+	}
+
+	// Rebuild the border colour.
+	borderColor := colorBorder
+	if focused {
+		borderColor = colorBorderFocus
+	}
+	cornerStyle := lipgloss.NewStyle().Foreground(borderColor)
+	dashStyle := lipgloss.NewStyle().Foreground(borderColor)
+
+	newTop := cornerStyle.Render("╭") +
+		dashStyle.Render("─") +
+		titleStyled +
+		dashStyle.Render(strings.Repeat("─", remainingDashes)) +
+		cornerStyle.Render("╮")
+
+	if len(lines) == 1 {
+		return newTop
+	}
+	return newTop + "\n" + lines[1]
+}
+
+// stripANSI removes ANSI escape sequences from s.
+func stripANSI(s string) string {
+	var out strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 // clipLines truncates s to at most maxLines newline-separated lines.
@@ -913,214 +1000,395 @@ func forceHeight(view string, h int) string {
 }
 
 func (a *App) renderHeader() string {
-	vaultBadge := ""
+	// ── Style atoms ───────────────────────────────────────────────────────
+	logoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#06B6D4")).Bold(true)
+	verStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#334155"))
+	sepStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#1E293B"))
+	badgeMuted := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#64748B"))
+
+	// ── Logo section ──────────────────────────────────────────────────────
+	logo := logoStyle.Render("⚡ lazyansible") +
+		verStyle.Render(" v"+version)
+
+	// ── State badges ──────────────────────────────────────────────────────
+	var badges []string
 	if a.vaultPassword != "" {
-		vaultBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).Bold(true).Render("  🔐")
+		badges = append(badges, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F59E0B")).Bold(true).
+			Background(lipgloss.Color("#1C1A0E")).
+			Padding(0, 1).Render("🔐 vault"))
 	}
-	retryBadge := ""
-	if len(a.retryHosts) > 0 {
-		retryBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#EF4444")).Bold(true).
-			Render(fmt.Sprintf("  ↺ %d failed", len(a.retryHosts)))
-	}
-	sshBadge := ""
 	if a.sshExtraVars != "" {
-		sshBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22C55E")).Bold(true).Render("  🔑")
+		badges = append(badges, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#22C55E")).Bold(true).
+			Background(lipgloss.Color("#0A1A0E")).
+			Padding(0, 1).Render("🔑 ssh"))
 	}
-
-	left := titleStyle.Render("lazyansible") +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Render(" v"+version) +
-		vaultBadge + retryBadge + sshBadge
-
-	var runIndicator string
+	if len(a.retryHosts) > 0 {
+		badges = append(badges, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#EF4444")).Bold(true).
+			Background(lipgloss.Color("#1A0A0A")).
+			Padding(0, 1).Render(fmt.Sprintf("↺ %d failed", len(a.retryHosts))))
+	}
 	if a.running {
-		runIndicator = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#06B6D4")).Bold(true).Render("  ▶ RUNNING")
+		badges = append(badges, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#111827")).Bold(true).
+			Background(lipgloss.Color("#06B6D4")).
+			Padding(0, 1).Render("▶ RUNNING"))
 	} else if a.linting {
-		runIndicator = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).Bold(true).Render("  ⚑ LINTING")
+		badges = append(badges, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#111827")).Bold(true).
+			Background(lipgloss.Color("#F59E0B")).
+			Padding(0, 1).Render("⚑ LINTING"))
+	}
+	badgeStr := ""
+	if len(badges) > 0 {
+		badgeStr = "  " + strings.Join(badges, " ")
 	}
 
-	tabs := strings.Join([]string{
-		tabHint("1", "Inventory"),
-		tabHint("2", "Playbooks"),
-		tabHint("3", "Status"),
-		tabHint("4", "Logs"),
-	}, "  ")
+	// ── Inventory name (right-aligned) ────────────────────────────────────
+	invName := ""
+	if a.config.InventoryPath != "" {
+		invName = badgeMuted.Render("  " + filepath.Base(a.config.InventoryPath))
+	}
 
-	right := tabs + runIndicator
-	gap := a.width - lipgloss.Width(left) - lipgloss.Width(right) - 4
+	left := logo + badgeStr
+
+	// ── Tab bar ───────────────────────────────────────────────────────────
+	type tab struct {
+		num   string
+		label string
+		panel core.Panel
+	}
+	tabs := []tab{
+		{"1", "Inventory", core.PanelInventory},
+		{"2", "Playbooks", core.PanelPlaybooks},
+		{"3", "Status", core.PanelStatus},
+		{"4", "Logs", core.PanelLogs},
+	}
+
+	var tabParts []string
+	for _, t := range tabs {
+		numPart := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#475569")).
+			Render(t.num+" ")
+		if t.panel == a.focused {
+			// Active tab: bright, underlined appearance
+			active := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#06B6D4")).Bold(true).
+				Background(lipgloss.Color("#0F2233")).
+				Padding(0, 1).
+				Render(t.num + " " + t.label)
+			tabParts = append(tabParts, active)
+		} else {
+			inactive := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#64748B")).
+				Padding(0, 1).
+				Render(numPart + t.label)
+			tabParts = append(tabParts, inactive)
+		}
+	}
+	tabBar := strings.Join(tabParts, sepStyle.Render(" "))
+
+	right := tabBar + invName
+
+	gap := a.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
 
-	return headerStyle.Width(a.width).Render(left + strings.Repeat(" ", gap) + right)
-}
-
-func tabHint(key, label string) string {
-	return keyStyle.Render("["+key+"]") +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB")).Render(label)
+	return headerStyle.
+		Width(a.width).
+		Padding(0, 1).
+		Render(left + strings.Repeat(" ", gap) + right)
 }
 
 func (a *App) renderStatusBar() string {
-	// Panel-specific shortcuts.
-	var hints []string
+	// ── Styles ────────────────────────────────────────────────────────────
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#111827")).
+		Background(lipgloss.Color("#6B7280")).
+		Bold(true).
+		Padding(0, 1)
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#9CA3AF"))
+	sepStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#374151"))
+	msgStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#D1D5DB"))
+
+	pill := func(k, d string) string {
+		return keyStyle.Render(k) + descStyle.Render(" "+d)
+	}
+	sep := sepStyle.Render("  │  ")
+
+	// ── Context-specific groups ───────────────────────────────────────────
+	type group struct {
+		items []string
+	}
+
+	var contextGroup []string
 	switch a.focused {
 	case core.PanelInventory:
-		hints = []string{"[v]vars", "[!]adhoc", "[enter]limit"}
+		contextGroup = []string{
+			pill("enter", "set limit"),
+			pill("v", "vars"),
+			pill("E", "edit vars"),
+			pill("!", "ad-hoc"),
+			pill("I", "reload"),
+			pill("N", "env"),
+		}
 	case core.PanelPlaybooks:
-		hints = []string{"[r]run", "[L]lint", "[t]tags", "[e]vars", "[c]check", "[d]diff"}
+		checkMark := ""
+		if a.pbPanel.CheckMode() {
+			checkMark = "✓"
+		}
+		diffMark := ""
+		if a.pbPanel.DiffMode() {
+			diffMark = "✓"
+		}
+		contextGroup = []string{
+			pill("r", "run"),
+			pill("space", "view"),
+			pill("E", "edit"),
+			pill("t", "tags"),
+			pill("c", "check"+checkMark),
+			pill("d", "diff"+diffMark),
+			pill("L", "lint"),
+			pill("F", "profiles"),
+		}
 	case core.PanelLogs:
-		hints = []string{"[k/j]scroll", "[/]search", "[G]end", "[T]time", "[ctrl+l]clear"}
-	default:
-		hints = []string{"[r]run"}
+		if a.logsFullscreen {
+			contextGroup = []string{
+				pill("/", "search"),
+				pill("f", "filter"),
+				pill("j/k", "scroll"),
+				pill("G", "end"),
+				pill("T", "time"),
+				pill("ctrl+l", "clear"),
+				pill("X", "export"),
+				pill("Z", "normal"),
+			}
+		} else {
+			contextGroup = []string{
+				pill("/", "search"),
+				pill("f", "filter"),
+				pill("j/k", "scroll"),
+				pill("T", "time"),
+				pill("ctrl+l", "clear"),
+				pill("Z", "fullscreen"),
+			}
+		}
+	case core.PanelStatus:
+		contextGroup = []string{
+			pill("r", "run"),
+		}
+		if len(a.retryHosts) > 0 {
+			contextGroup = append(contextGroup, pill("R", "retry"))
+		}
 	}
-	// Compact global hints – never more than a handful to prevent line wrap.
-	if a.logsFullscreen {
-		hints = append(hints, "[Z]normal")
-	} else {
-		hints = append(hints, "[Z]zoom")
-	}
-	if len(a.retryHosts) > 0 {
-		hints = append(hints, "[R]retry")
-	}
-	hints = append(hints, "[?]help", "[q]quit")
 
-	// Build the hint string and hard-cap it so it NEVER wraps to a second line.
-	hintStr := strings.Join(hints, "  ")
-	maxHintW := a.width * 2 / 3
-	if maxHintW < 20 {
-		maxHintW = 20
+	// ── Global shortcuts (always visible) ─────────────────────────────────
+	globalGroup := []string{
+		pill("A", "galaxy"),
+		pill("H", "history"),
+		pill("V", "vault"),
+		pill("?", "help"),
+		pill("q", "quit"),
 	}
-	if lipgloss.Width(hintStr) > maxHintW {
-		hintStr = truncateStr(hintStr, maxHintW)
-	}
-	hint := helpStyle.Render(hintStr)
 
-	msgW := a.width - lipgloss.Width(hint) - 4
-	if msgW < 0 {
-		msgW = 0
-	}
-	msg := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#D1D5DB")).
-		Render(truncateStr(a.statusMsg, msgW))
+	// ── Assemble right-side hint string ───────────────────────────────────
+	allPills := append(contextGroup, sep)
+	allPills = append(allPills, globalGroup...)
 
-	gap := a.width - lipgloss.Width(msg) - lipgloss.Width(hint) - 4
+	// Hard-cap width so it never wraps.
+	maxHintW := a.width * 3 / 4
+	if maxHintW < 30 {
+		maxHintW = 30
+	}
+	hintRaw := strings.Join(allPills, "  ")
+	if lipgloss.Width(hintRaw) > maxHintW {
+		// Fall back to minimal set.
+		minimal := append(contextGroup[:min(len(contextGroup), 4)], sep)
+		minimal = append(minimal, pill("?", "help"), pill("q", "quit"))
+		hintRaw = strings.Join(minimal, "  ")
+	}
+
+	// ── Left: status message ───────────────────────────────────────────────
+	hintW := lipgloss.Width(hintRaw)
+	msgMaxW := a.width - hintW - 4
+	if msgMaxW < 0 {
+		msgMaxW = 0
+	}
+	msg := msgStyle.Render(truncateStr(a.statusMsg, msgMaxW))
+
+	gap := a.width - lipgloss.Width(msg) - hintW - 2
 	if gap < 1 {
 		gap = 1
 	}
 
+	bar := msg + strings.Repeat(" ", gap) + hintRaw
 	return lipgloss.NewStyle().
 		Background(lipgloss.Color("#111827")).
 		Width(a.width).
-		Render(msg + strings.Repeat(" ", gap) + hint)
+		Render(bar)
 }
 
 func (a *App) helpContent() string {
 	// ── Styles ────────────────────────────────────────────────────────────────
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7C3AED")).Bold(true)
-	keyCol := lipgloss.NewStyle().
+	keyStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#06B6D4")).Bold(true)
-	descCol := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#D1D5DB"))
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#9CA3AF"))
 	dimStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4B5563"))
+		Foreground(lipgloss.Color("#374151"))
+	colDivStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#374151"))
 
-	// row builds one shortcut line: fixed-width key + description.
+	// row: fixed-width key badge + description, left-padded.
 	row := func(k, desc string) string {
-		return "  " + keyCol.Render(fmt.Sprintf("%-18s", k)) + descCol.Render(desc)
+		return " " + keyStyle.Render(fmt.Sprintf("%-14s", k)) + descStyle.Render(desc)
 	}
 	blank := ""
 
-	// ── Left column: Navigation · Inventory · Playbooks ───────────────────────
-	left := strings.Join([]string{
-		sectionStyle.Render("Navigation"),
-		row("tab / shift+tab", "cycle panels"),
-		row("1  2  3  4", "jump to panel"),
-		row("j / k", "move down / up"),
+	// ── Column 1: Navigation + Inventory ──────────────────────────────────────
+	col1 := strings.Join([]string{
+		sectionStyle.Render(" Navigation"),
+		row("tab/shift+tab", "cycle panels"),
+		row("1 2 3 4", "jump to panel"),
+		row("j / k", "up / down"),
 		row("g / G", "top / bottom"),
 		blank,
-		sectionStyle.Render("Inventory panel"),
-		row("enter / space", "expand / collapse group"),
-		row("enter on host", "set as run limit"),
+		sectionStyle.Render(" Inventory"),
+		row("enter", "set run limit"),
+		row("space", "expand / collapse"),
 		row("v", "variable browser"),
-		row("E", "open host/group vars file in $EDITOR"),
-		row("!", "ad-hoc command runner"),
-		blank,
-		sectionStyle.Render("Playbooks panel"),
-		row("r / enter", "run selected playbook"),
+		row("E", "edit vars in $EDITOR"),
+		row("!", "ad-hoc command"),
+		row("I", "reload inventory"),
+		row("N", "switch environment"),
+	}, "\n")
+
+	// ── Column 2: Playbooks + Logs ────────────────────────────────────────────
+	col2 := strings.Join([]string{
+		sectionStyle.Render(" Playbooks"),
+		row("r / enter", "run playbook"),
+		row("space", "view YAML source"),
+		row("E", "edit in $EDITOR"),
 		row("c", "--check mode"),
 		row("d", "--diff mode"),
 		row("t", "tags browser"),
 		row("e", "--extra-vars"),
 		row("L", "ansible-lint"),
 		blank,
-		sectionStyle.Render("Playbooks panel — v0.7"),
-		row("space", "view playbook YAML source"),
-		row("E", "open playbook in $EDITOR"),
-		blank,
-		sectionStyle.Render("Logs panel (focused)"),
-		row("/", "open search bar"),
+		sectionStyle.Render(" Logs"),
+		row("/", "search"),
 		row("n / N", "next / prev match"),
-		row("f", "cycle level filter (all/failed/changed/ok)"),
-		row("j / k", "scroll down / up"),
+		row("f", "filter by level"),
 		row("ctrl+d / ctrl+u", "half-page scroll"),
-		row("G / g", "bottom / top"),
 		row("T", "toggle timestamps"),
-		row("ctrl+l / Z", "clear / fullscreen toggle"),
+		row("ctrl+l", "clear"),
+		row("Z", "fullscreen toggle"),
+		row("X", "export → Markdown"),
 	}, "\n")
 
-	// ── Right column: Run control · Tools · Global ─────────────────────────
-	right := strings.Join([]string{
-		sectionStyle.Render("Run control"),
+	// ── Column 3: Run Control + Tools + Global ────────────────────────────────
+	col3 := strings.Join([]string{
+		sectionStyle.Render(" Run control"),
 		row("V", "vault password"),
-		row("H", "run history"),
+		row("H", "history browser"),
 		row("R", "retry failed hosts"),
-		row("X", "export logs → Markdown"),
 		blank,
-		sectionStyle.Render("Tools"),
+		sectionStyle.Render(" Tools"),
 		row("O", "role browser"),
-		row("N", "switch inventory"),
-		row("P", "SSH profile manager"),
+		row("P", "SSH profiles"),
+		row("A", "Ansible Galaxy"),
+		row("F", "run profiles"),
 		blank,
-		sectionStyle.Render("v0.6 features"),
-		row("A", "Ansible Galaxy browser"),
-		row("F", "run profiles (save/load)"),
+		sectionStyle.Render(" Vars overlay"),
+		row("e", "edit vars file"),
 		blank,
-		sectionStyle.Render("v0.7 features"),
-		row("I", "live reload inventory + playbooks"),
-		blank,
-		sectionStyle.Render("Global"),
-		row("?", "toggle this help"),
+		sectionStyle.Render(" Global"),
+		row("?", "toggle help"),
 		row("q / ctrl+c", "quit"),
-		row("mouse click", "focus panel"),
+		row("click", "focus panel"),
 	}, "\n")
 
-	// ── Assembly ──────────────────────────────────────────────────────────────
-	boxW := min(a.width-4, 106)
-	colW := boxW/2 - 2
+	// ── Sizing ────────────────────────────────────────────────────────────────
+	// Use up to 95% of terminal width, capped at 132 cols.
+	boxW := min(a.width-2, 132)
+	if boxW < 60 {
+		boxW = 60
+	}
+	// Each column gets a third of inner box width; dividers add 1 col each.
+	innerW := boxW - 6 // overlayBoxStyle has Padding(1,2) = 4 + border 2
+	colW := (innerW - 4) / 3
 
-	leftPane := lipgloss.NewStyle().Width(colW).Render(left)
-	rightPane := lipgloss.NewStyle().
-		PaddingLeft(2).
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#374151")).
-		Width(colW + 2).
-		Render(right)
-	cols := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+	_ = colDivStyle // used via BorderForeground below
+	cols := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(colW).Render(col1),
+		lipgloss.NewStyle().
+			Width(1).PaddingLeft(1).PaddingRight(1).
+			BorderLeft(true).BorderRight(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#374151")).
+			Render(""),
+		lipgloss.NewStyle().Width(colW).Render(col2),
+		lipgloss.NewStyle().
+			Width(1).PaddingLeft(1).PaddingRight(1).
+			BorderLeft(true).BorderRight(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#374151")).
+			Render(""),
+		lipgloss.NewStyle().Width(colW).Render(col3),
+	)
 
-	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7C3AED")).Bold(true).
-		Render("lazyansible v" + version + " — keyboard shortcuts")
+	// ── Header ────────────────────────────────────────────────────────────────
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#06B6D4")).Bold(true)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED"))
+	hintStyle2 := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4B5563"))
+
+	title := titleStyle.Render("lazyansible ") +
+		versionStyle.Render("v"+version) +
+		titleStyle.Render(" — keyboard shortcuts")
+	subhint := hintStyle2.Render("press any key to close")
+	headerGap := boxW - 6 - lipgloss.Width(title) - lipgloss.Width(subhint)
+	if headerGap < 1 {
+		headerGap = 1
+	}
+	header := title + strings.Repeat(" ", headerGap) + subhint
 	divider := dimStyle.Render(strings.Repeat("─", boxW-6))
 
-	content := title + "\n" + divider + "\n\n" + cols
+	content := header + "\n" + divider + "\n" + cols
+
+	// ── Clip to terminal height so the title is never off-screen ─────────────
+	maxBoxH := a.height - 4
+	if maxBoxH < 10 {
+		maxBoxH = 10
+	}
+	content = clipLines(content, maxBoxH-2) // -2 for box border
 
 	return overlayBoxStyle.Width(boxW).Render(content)
+}
+
+func max3(a, b, c int) int {
+	m := a
+	if b > m {
+		m = b
+	}
+	if c > m {
+		m = c
+	}
+	return m
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1231,8 +1499,6 @@ func (a *App) resizePanels() {
 		a.logsPanel.SetSize(a.width-4, botH-2)
 	}
 
-	a.varsOverlay.width = a.width
-	a.varsOverlay.height = a.height
 	a.adhocOverlay.width = a.width
 	a.adhocOverlay.height = a.height
 	a.extraVarsOverlay.width = a.width
@@ -1553,7 +1819,6 @@ func (a *App) startRoleRun(req RoleRunMsg) tea.Cmd {
 // switchInventory reloads the inventory from a new path.
 func (a *App) switchInventory(path string) tea.Cmd {
 	a.config.InventoryPath = path
-	a.varsOverlay.SetWorkDir(inventoryBaseDir(a.config))
 	a.statusMsg = "Switching to " + filepath.Base(path) + "…"
 	return func() tea.Msg {
 		inv, err := inventory.Parse(path)

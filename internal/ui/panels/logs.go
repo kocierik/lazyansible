@@ -161,7 +161,7 @@ func (p *LogsPanel) jumpToMatch() {
 }
 
 func (p *LogsPanel) visibleLines() int {
-	h := p.height - 2 // title row + content
+	h := p.height - 3 // title row + content + 1 blank line at bottom
 	if h < 1 {
 		h = 1
 	}
@@ -345,25 +345,31 @@ func (p *LogsPanel) View() string {
 		line := visible[i]
 		line.Text = strings.ReplaceAll(line.Text, "\r", "")
 		rendered := renderLogLine(line, p.width, p.showTime)
-		rendered = strings.SplitN(rendered, "\n", 2)[0]
 
-		if p.searchQuery != "" && matchSet[i] {
-			if i == currentMatchIdx {
-				rendered = lipgloss.NewStyle().
-					Background(lipgloss.Color("#7C3AED")).
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Bold(true).
-					Render(rendered)
-			} else {
-				rendered = lipgloss.NewStyle().
-					Background(lipgloss.Color("#1E1B4B")).
-					Render(rendered)
+		// renderLogLine may return multiple visual lines (e.g. wrapped command).
+		// Split and emit each sub-line individually, respecting the height budget.
+		subLines := strings.Split(rendered, "\n")
+		for _, sl := range subLines {
+			if written >= contentH {
+				break
 			}
+			if p.searchQuery != "" && matchSet[i] {
+				if i == currentMatchIdx {
+					sl = lipgloss.NewStyle().
+						Background(lipgloss.Color("#7C3AED")).
+						Foreground(lipgloss.Color("#FFFFFF")).
+						Bold(true).
+						Render(sl)
+				} else {
+					sl = lipgloss.NewStyle().
+						Background(lipgloss.Color("#1E1B4B")).
+						Render(sl)
+				}
+			}
+			sb.WriteByte('\n')
+			sb.WriteString(sl)
+			written++
 		}
-
-		sb.WriteByte('\n')
-		sb.WriteString(rendered)
-		written++
 	}
 
 	return sb.String()
@@ -443,8 +449,8 @@ func (p *LogsPanel) renderTitle(filteredTotal, allTotal, contentH int) string {
 		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Render("  esc:clear")
 		left = prompt + queryText + badge + hint
 	} else {
-		// Normal state.
-		left = lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Bold(true).Render("Logs")
+		// Normal state — title is already shown in the panel border; no label needed here.
+		left = ""
 	}
 
 	// ── Separator fills the gap between left and right ────────────────────
@@ -473,9 +479,15 @@ func renderLogLine(line core.LogLine, maxW int, showTime bool) string {
 		ts := line.Timestamp.Format("15:04:05")
 		prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151")).Render(ts + " ")
 	}
+	prefixW := lipgloss.Width(prefix)
+
+	// ── Command lines: wrap across multiple visual lines ──────────────────
+	if line.Level == core.LogLevelCommand {
+		return wrapCommandLine(text, prefix, prefixW, maxW)
+	}
 
 	// ── Truncate to visible width ─────────────────────────────────────────
-	avail := maxW - lipgloss.Width(prefix)
+	avail := maxW - prefixW
 	if avail < 4 {
 		avail = 4
 	}
@@ -485,7 +497,107 @@ func renderLogLine(line core.LogLine, maxW int, showTime bool) string {
 	}
 
 	styled := applyLogStyle(text, line.Level)
-	return prefix + styled
+	result := prefix + styled
+	// Final visual-width guard: strip ANSI and re-check against maxW.
+	if lipgloss.Width(result) > maxW {
+		runes := []rune(stripAnsiLogs(result))
+		if len(runes) > maxW-1 {
+			result = applyLogStyle(string([]rune(text)[:max2(0, maxW-prefixW-1)])+"…", line.Level)
+			result = prefix + result
+		}
+	}
+	return result
+}
+
+// wrapCommandLine wraps a long command string across multiple visual lines,
+// breaking only at word boundaries (spaces). The first line gets the optional
+// timestamp prefix; continuation lines are indented by 2 spaces.
+func wrapCommandLine(text, prefix string, prefixW, maxW int) string {
+	const contIndent = "  "
+	contIndentW := len([]rune(contIndent))
+
+	avail := maxW - prefixW
+	if avail < 8 {
+		avail = 8
+	}
+	contAvail := maxW - contIndentW
+	if contAvail < 8 {
+		contAvail = 8
+	}
+
+	// Split the command into words and re-assemble with word-wrap.
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return prefix + commandStyle.Render(text)
+	}
+
+	var sb strings.Builder
+	lineRunes := 0
+	lineWords := []string{}
+	first := true
+
+	flush := func() {
+		chunk := strings.Join(lineWords, " ")
+		if first {
+			sb.WriteString(prefix + commandStyle.Render(chunk))
+			first = false
+		} else {
+			sb.WriteByte('\n')
+			sb.WriteString(commandStyle.Render(contIndent + chunk))
+		}
+		lineWords = lineWords[:0]
+		lineRunes = 0
+	}
+
+	for _, w := range words {
+		wLen := len([]rune(w))
+		capacity := avail
+		if !first {
+			capacity = contAvail
+		}
+		sep := 0
+		if len(lineWords) > 0 {
+			sep = 1 // space between words
+		}
+		if lineRunes+sep+wLen > capacity && len(lineWords) > 0 {
+			flush()
+		}
+		if len(lineWords) > 0 {
+			lineRunes++ // space
+		}
+		lineWords = append(lineWords, w)
+		lineRunes += wLen
+	}
+	if len(lineWords) > 0 {
+		flush()
+	}
+	return sb.String()
+}
+
+func stripAnsiLogs(s string) string {
+	var out strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+func max2(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // isAnsibleHeader detects "TASK [...]  ****" / "PLAY [...]  ****" / "PLAY RECAP" lines.
@@ -514,9 +626,21 @@ func renderHeaderLine(s string, maxW int) string {
 	}
 
 	prefix := "── "
-	fillLen := maxW - len([]rune(prefix)) - len([]rune(label)) - 2
-	if fillLen < 2 {
-		fillLen = 2
+	prefixW := len([]rune(prefix))
+	const minFill = 3
+	// Maximum characters available for the label.
+	maxLabelW := maxW - prefixW - minFill - 1
+	if maxLabelW < 4 {
+		maxLabelW = 4
+	}
+	labelRunes := []rune(label)
+	if len(labelRunes) > maxLabelW {
+		label = string(labelRunes[:maxLabelW-1]) + "…"
+	}
+
+	fillLen := maxW - prefixW - len([]rune(label)) - 1
+	if fillLen < minFill {
+		fillLen = minFill
 	}
 	fill := " " + strings.Repeat("─", fillLen)
 

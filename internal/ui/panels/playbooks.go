@@ -1,7 +1,6 @@
 package panels
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -126,17 +125,11 @@ func (p *PlaybooksPanel) Update(msg tea.Msg) tea.Cmd {
 
 func (p *PlaybooksPanel) View() string {
 	if len(p.playbooks) == 0 {
-		return panelTitle("Playbooks") + mutedText("No playbooks found.\nPlace *.yml files in your project directory.")
+		return mutedText("No playbooks found.\nPlace *.yml files in your project directory.")
 	}
 
 	var sb strings.Builder
 
-	// ── Title with playbook count ──────────────────────────────────────────
-	countBadge := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4B5563")).
-		Render(fmt.Sprintf(" (%d)", len(p.playbooks)))
-	sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Bold(true).
-		Render("Playbooks") + countBadge + "\n")
 
 	// ── Active option badges ───────────────────────────────────────────────
 	var badges []string

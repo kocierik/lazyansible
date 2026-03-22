@@ -60,14 +60,158 @@ func Discover(dir string) []string {
 }
 
 // Parse auto-detects and parses an inventory file.
+// After parsing it also merges any group_vars/ and host_vars/ directories
+// found next to the inventory file or in its parent directory (matching
+// standard Ansible lookup order).
 func Parse(path string) (*core.Inventory, error) {
 	ext := strings.ToLower(filepath.Ext(path))
+	var inv *core.Inventory
+	var err error
 	switch ext {
 	case ".yaml", ".yml":
-		return parseYAML(path)
+		inv, err = parseYAML(path)
 	default:
-		return parseINI(path)
+		inv, err = parseINI(path)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Load group_vars/ and host_vars/ from standard Ansible locations.
+	inventoryDir := filepath.Dir(path)
+	searchDirs := []string{inventoryDir}
+	if parent := filepath.Dir(inventoryDir); parent != inventoryDir {
+		searchDirs = append(searchDirs, parent)
+	}
+	for _, dir := range searchDirs {
+		loadGroupVars(inv, filepath.Join(dir, "group_vars"))
+		loadHostVars(inv, filepath.Join(dir, "host_vars"))
+	}
+
+	return inv, nil
+}
+
+// loadGroupVars merges YAML files from a group_vars directory into inv.Groups.
+// Supports both flat files (group_vars/webservers.yml) and directory form
+// (group_vars/webservers/main.yml or group_vars/webservers/*.yml).
+func loadGroupVars(inv *core.Inventory, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return // directory doesn't exist — silently skip
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			// Directory form: group_vars/<groupname>/ — load all YAML files inside.
+			groupName := name
+			g := findOrCreateGroup(inv, groupName)
+			subEntries, _ := os.ReadDir(filepath.Join(dir, name))
+			for _, se := range subEntries {
+				if !se.IsDir() && isYAMLFile(se.Name()) {
+					mergeYAMLFile(filepath.Join(dir, name, se.Name()), g.Vars)
+				}
+			}
+		} else if isYAMLFile(name) {
+			// Flat file: group_vars/webservers.yml → group name is stem.
+			groupName := yamlStem(name)
+			g := findOrCreateGroup(inv, groupName)
+			mergeYAMLFile(filepath.Join(dir, name), g.Vars)
+		}
+	}
+}
+
+// loadHostVars merges YAML files from a host_vars directory into inv.Hosts.
+func loadHostVars(inv *core.Inventory, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			hostName := name
+			h := findOrCreateHost(inv, hostName)
+			subEntries, _ := os.ReadDir(filepath.Join(dir, name))
+			for _, se := range subEntries {
+				if !se.IsDir() && isYAMLFile(se.Name()) {
+					mergeYAMLFile(filepath.Join(dir, name, se.Name()), h.Vars)
+				}
+			}
+		} else if isYAMLFile(name) {
+			hostName := yamlStem(name)
+			h := findOrCreateHost(inv, hostName)
+			mergeYAMLFile(filepath.Join(dir, name), h.Vars)
+		}
+	}
+}
+
+func findOrCreateGroup(inv *core.Inventory, name string) *core.Group {
+	if g, ok := inv.Groups[name]; ok {
+		return g
+	}
+	g := &core.Group{Name: name, Vars: make(map[string]string)}
+	inv.Groups[name] = g
+	inv.OrderedGroups = append(inv.OrderedGroups, name)
+	return g
+}
+
+func findOrCreateHost(inv *core.Inventory, name string) *core.Host {
+	if h, ok := inv.Hosts[name]; ok {
+		return h
+	}
+	h := &core.Host{Name: name, Vars: make(map[string]string)}
+	inv.Hosts[name] = h
+	return h
+}
+
+// mergeYAMLFile reads a YAML file and merges its top-level key/value pairs
+// into dest. Non-scalar values are serialised to their YAML string form.
+func mergeYAMLFile(path string, dest map[string]string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	for k, v := range raw {
+		dest[k] = yamlValueString(v)
+	}
+}
+
+// yamlValueString converts an arbitrary YAML value to a human-readable string.
+func yamlValueString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return val
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case int, int64, float64:
+		return fmt.Sprintf("%v", val)
+	default:
+		// For maps/slices, re-marshal to compact YAML.
+		out, err := yaml.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return strings.TrimSpace(string(out))
+	}
+}
+
+func isYAMLFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".yml" || ext == ".yaml"
+}
+
+func yamlStem(name string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
 }
 
 // ─── INI parser ──────────────────────────────────────────────────────────────

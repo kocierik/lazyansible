@@ -155,7 +155,7 @@ func (p *InventoryPanel) View() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(panelTitle("Inventory"))
+	// title is shown in the panel border; no need to repeat it here
 
 	// Determine visible slice.
 	contentH := p.height - 4 // border + title

@@ -102,7 +102,7 @@ func (p *StatusPanel) Update(msg tea.Msg) tea.Cmd {
 
 func (p *StatusPanel) View() string {
 	var sb strings.Builder
-	sb.WriteString(panelTitle("Host Status"))
+	// title is shown in the panel border; no need to repeat it here
 
 	if p.running {
 		elapsed := time.Since(p.runStart).Round(time.Second)
