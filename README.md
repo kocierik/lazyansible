@@ -48,6 +48,31 @@ Running Ansible from the CLI is powerful but low-visibility: you get a wall of t
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install kocierik/lazyansible/lazyansible
+```
+
+### AUR (Arch Linux)
+
+```bash
+yay -S lazyansible-bin
+```
+
+Or with any other AUR helper:
+
+```bash
+paru -S lazyansible-bin
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add lazyansible https://github.com/kocierik/scoop-lazyansible
+scoop install lazyansible
+```
+
 ### go install
 
 ```bash
@@ -65,12 +90,12 @@ sudo mv lazyansible /usr/local/bin/
 
 ### Requirements
 
-- Go 1.21 or later
 - `ansible-playbook` in `$PATH`
 - `ansible` (for ad-hoc commands)
 - `ansible-lint` *(optional — for lint integration)*
 - `ansible-galaxy` *(optional — for Galaxy browser)*
 - `notify-send` on Linux or `terminal-notifier` on macOS *(optional — for desktop notifications)*
+- Go 1.22+ *(only required for building from source)*
 
 ---
 

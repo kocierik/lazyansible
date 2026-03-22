@@ -88,6 +88,30 @@ changelog:
       - Merge pull request
       - Merge branch
 
+brews:
+  - name: lazyansible
+    repository:
+      owner: kocierik
+      name: homebrew-lazyansible
+      token: "{{ .Env.GORELEASER_TOKEN }}"
+    homepage: "https://github.com/kocierik/lazyansible"
+    description: "A lazy TUI for Ansible — browse inventory, run playbooks, stream logs"
+    license: "MIT"
+    folder: Formula
+    install: |
+      bin.install "lazyansible"
+    test: |
+      system "#{bin}/lazyansible", "--version"
+
+scoops:
+  - repository:
+      owner: kocierik
+      name: scoop-lazyansible
+      token: "{{ .Env.GORELEASER_TOKEN }}"
+    homepage: "https://github.com/kocierik/lazyansible"
+    description: "A lazy TUI for Ansible — browse inventory, run playbooks, stream logs"
+    license: MIT
+
 release:
   github:
     owner: kocierik
@@ -98,6 +122,23 @@ release:
   footer: |
     ## Installation
 
+    **Homebrew** (macOS / Linux):
+    ```bash
+    brew install kocierik/lazyansible/lazyansible
+    ```
+
+    **Scoop** (Windows):
+    ```powershell
+    scoop bucket add lazyansible https://github.com/kocierik/scoop-lazyansible
+    scoop install lazyansible
+    ```
+
+    **AUR** (Arch Linux):
+    ```bash
+    yay -S lazyansible-bin
+    ```
+
+    **Go install**:
     ```bash
     go install github.com/kocierik/lazyansible/cmd/lazyansible@latest
     ```
