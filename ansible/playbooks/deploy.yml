@@ -1,0 +1,68 @@
+---
+# Deploy application to web servers
+- name: Deploy application
+  hosts: webservers
+  become: true
+  vars:
+    app_version: "{{ version | default('latest') }}"
+    deploy_path: /var/www/app
+
+  pre_tasks:
+    - name: Ensure deploy path exists
+      ansible.builtin.file:
+        path: "{{ deploy_path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Check current app version
+      ansible.builtin.command: cat {{ deploy_path }}/VERSION
+      register: current_version
+      failed_when: false
+      changed_when: false
+
+  tasks:
+    - name: Pull latest app code
+      ansible.builtin.git:
+        repo: "https://github.com/example/app.git"
+        dest: "{{ deploy_path }}"
+        version: "{{ app_version }}"
+      notify: Restart app service
+
+    - name: Install Python dependencies
+      ansible.builtin.pip:
+        requirements: "{{ deploy_path }}/requirements.txt"
+        virtualenv: "{{ deploy_path }}/venv"
+
+    - name: Run database migrations
+      ansible.builtin.command:
+        cmd: "{{ deploy_path }}/venv/bin/python manage.py migrate --noinput"
+        chdir: "{{ deploy_path }}"
+      environment:
+        DATABASE_URL: "postgresql://{{ db_user }}:{{ db_pass }}@{{ db_host }}/{{ db_name }}"
+
+    - name: Collect static files
+      ansible.builtin.command:
+        cmd: "{{ deploy_path }}/venv/bin/python manage.py collectstatic --noinput"
+        chdir: "{{ deploy_path }}"
+
+    - name: Write version file
+      ansible.builtin.copy:
+        content: "{{ app_version }}\n"
+        dest: "{{ deploy_path }}/VERSION"
+
+  post_tasks:
+    - name: Verify app is responding
+      ansible.builtin.uri:
+        url: "http://localhost:{{ http_port }}/health"
+        status_code: 200
+      retries: 5
+      delay: 3
+
+  handlers:
+    - name: Restart app service
+      ansible.builtin.systemd:
+        name: app
+        state: restarted
+        enabled: true

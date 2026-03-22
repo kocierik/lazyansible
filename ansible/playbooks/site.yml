@@ -1,0 +1,19 @@
+---
+# Main site playbook – applies all roles to all servers
+- name: Apply common configuration to all hosts
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Configure web servers
+  hosts: webservers
+  become: true
+  roles:
+    - webserver
+
+- name: Configure database servers
+  hosts: dbservers
+  become: true
+  roles:
+    - database

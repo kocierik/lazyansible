@@ -1,0 +1,27 @@
+# Example Ansible YAML inventory
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+          ansible_user: ubuntu
+          http_port: 80
+        web2.example.com:
+          ansible_user: ubuntu
+          http_port: 80
+      vars:
+        nginx_version: "1.24"
+    dbservers:
+      hosts:
+        db1.example.com:
+          ansible_user: postgres
+          db_port: 5432
+        db2.example.com:
+          ansible_user: postgres
+          db_port: 5432
+    monitoring:
+      hosts:
+        metrics.example.com:
+          ansible_user: ubuntu

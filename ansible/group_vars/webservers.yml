@@ -1,0 +1,6 @@
+---
+nginx_version: "1.24"
+http_port: 80
+https_port: 443
+server_name: app.example.com
+document_root: /var/www/app

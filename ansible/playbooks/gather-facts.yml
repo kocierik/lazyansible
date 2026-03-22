@@ -1,0 +1,24 @@
+---
+# Collect facts from all hosts – useful for debugging
+- name: Gather and display facts
+  hosts: "{{ target | default('all') }}"
+  gather_facts: true
+
+  tasks:
+    - name: Show OS information
+      ansible.builtin.debug:
+        msg: >
+          Host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+          CPUs: {{ ansible_processor_vcpus }}
+          RAM: {{ (ansible_memtotal_mb / 1024) | round(1) }} GB
+          Disk: {{ ansible_mounts | map(attribute='size_total') | list }}
+
+    - name: Show network interfaces
+      ansible.builtin.debug:
+        msg: "Interface {{ item.key }}: {{ item.value.ipv4.address | default('no IPv4') }}"
+      loop: "{{ ansible_interfaces | map('extract', ansible_facts) | list }}"
+      when: item.value is mapping and 'ipv4' in item.value
+      loop_control:
+        label: "{{ item.key }}"

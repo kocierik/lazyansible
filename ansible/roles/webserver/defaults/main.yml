@@ -1,0 +1,8 @@
+---
+nginx_version: "1.24"
+http_port: 80
+https_port: 443
+server_name: "_"
+document_root: /var/www/html
+worker_processes: auto
+worker_connections: 1024

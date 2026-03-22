@@ -1,0 +1,7 @@
+---
+pg_version: "15"
+pg_listen_addresses: "localhost"
+db_name: appdb
+db_user: appuser
+db_password: "changeme"   # override via group_vars or vault
+db_port: 5432
