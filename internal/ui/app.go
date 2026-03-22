@@ -24,7 +24,7 @@ import (
 	"github.com/kocierik/lazyansible/internal/vault"
 )
 
-const version = "0.7.0"
+const version = "1.0.0"
 
 // AppMode tracks which overlay (if any) is currently shown.
 type AppMode int
