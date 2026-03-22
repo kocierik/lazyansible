@@ -24,7 +24,8 @@ import (
 	"github.com/kocierik/lazyansible/internal/vault"
 )
 
-const version = "1.0.0"
+// version is set at build time via -ldflags "-X github.com/kocierik/lazyansible/internal/ui.version=x.y.z"
+var version = "1.0.0"
 
 // AppMode tracks which overlay (if any) is currently shown.
 type AppMode int
