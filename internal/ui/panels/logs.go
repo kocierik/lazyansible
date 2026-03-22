@@ -468,6 +468,8 @@ func applyLogStyle(text string, level core.LogLevel) string {
 		return diffHunkStyle.Render(text)
 	case core.LogLevelDiffHeader:
 		return diffHeaderStyle.Render(text)
+	case core.LogLevelCommand:
+		return commandStyle.Render(text)
 	default:
 		return infoLogStyle.Render(text)
 	}
@@ -521,6 +523,10 @@ var (
 			Bold(true) // cyan
 
 	diffHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E5E7EB")).
-			Bold(true) // bold white
+		Foreground(lipgloss.Color("#E5E7EB")).
+		Bold(true) // bold white
+
+	commandStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED")).
+		Bold(true) // purple — command echo at run start
 )

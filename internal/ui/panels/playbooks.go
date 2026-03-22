@@ -130,32 +130,40 @@ func (p *PlaybooksPanel) View() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(panelTitle("Playbooks"))
 
-	// ── Active option badges ──
+	// ── Title with playbook count ──────────────────────────────────────────
+	countBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4B5563")).
+		Render(fmt.Sprintf(" (%d)", len(p.playbooks)))
+	sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Bold(true).
+		Render("Playbooks") + countBadge + "\n")
+
+	// ── Active option badges ───────────────────────────────────────────────
 	var badges []string
 	if p.checkMode {
-		badges = append(badges, flagStyle.Render("--check"))
+		badges = append(badges, flagStyle.Render("✓check"))
 	}
 	if p.diffMode {
-		badges = append(badges, flagStyle.Render("--diff"))
+		badges = append(badges, flagStyle.Render("±diff"))
 	}
 	if p.limit != "" {
-		badges = append(badges, limitStyle.Render("⊢ "+p.limit))
+		badges = append(badges, limitStyle.Render("⊢ "+truncateBadge(p.limit, 14)))
 	}
 	if p.activeTags != "" {
-		badges = append(badges, tagsStyle.Render("# "+truncateBadge(p.activeTags, 18)))
+		badges = append(badges, tagsStyle.Render("# "+truncateBadge(p.activeTags, 14)))
 	}
 	if p.extraVarsRaw != "" {
-		badges = append(badges, extraVarsStyle.Render("-e "+truncateBadge(p.extraVarsRaw, 16)))
+		badges = append(badges, extraVarsStyle.Render("-e "+truncateBadge(p.extraVarsRaw, 12)))
 	}
 	if len(badges) > 0 {
 		sb.WriteString(strings.Join(badges, " ") + "\n")
 	}
 
-	// ── Playbook list ──
-	// Reserve 2 extra lines for the tags detail of the selected entry.
-	contentH := p.height - 6 - len(badges)
+	// ── Playbook list ──────────────────────────────────────────────────────
+	// Each non-selected entry = 1 line. Selected entry = 3 lines (name + hosts + tags/path).
+	// Reserve space for the detail block of the selected item.
+	detailLines := 2 // hosts row + tags/path row for selected item
+	contentH := p.height - 4 - len(badges) - detailLines
 	if contentH < 1 {
 		contentH = 1
 	}
@@ -170,32 +178,81 @@ func (p *PlaybooksPanel) View() string {
 
 	for i := start; i < end; i++ {
 		pb := p.playbooks[i]
-		selected := i == p.cursor
+		selected := i == p.cursor && p.focused
 
-		hostsStr := ""
-		if len(pb.Hosts) > 0 {
-			hostsStr = fmt.Sprintf(" [%s]", strings.Join(pb.Hosts, ","))
-		}
-		text := pb.Name + hostsStr
+		if selected {
+			// ── Selected: name row ────────────────────────────────────────
+			sb.WriteString(pbSelectedStyle.Render("▶ "+truncateBadge(pb.Name, p.width-4)) + "\n")
 
-		if selected && p.focused {
-			sb.WriteString(pbSelectedStyle.Render("▶ "+text) + "\n")
-			// Show tags inline under the selected playbook.
+			// ── Hosts row ────────────────────────────────────────────────
+			if len(pb.Hosts) > 0 {
+				hostLabels := make([]string, 0, len(pb.Hosts))
+				for _, h := range pb.Hosts {
+					hostLabels = append(hostLabels, cleanHost(h))
+				}
+				hostsStr := strings.Join(hostLabels, ", ")
+				hostsStr = truncateBadge(hostsStr, p.width-8)
+				sb.WriteString(pbHostsStyle.Render("  hosts: "+hostsStr) + "\n")
+			} else {
+				sb.WriteString(pbHostsStyle.Render("  hosts: (not set)") + "\n")
+			}
+
+			// ── Tags / path row ───────────────────────────────────────────
 			if len(pb.Tags) > 0 {
 				tagStr := strings.Join(pb.Tags, ", ")
-				if len([]rune(tagStr)) > p.width-6 {
-					tagStr = string([]rune(tagStr)[:p.width-7]) + "…"
-				}
-				sb.WriteString(pbTagLineStyle.Render("  # "+tagStr) + "\n")
+				tagStr = truncateBadge(tagStr, p.width-8)
+				sb.WriteString(pbTagLineStyle.Render("  tags: "+tagStr) + "\n")
 			} else {
-				sb.WriteString(mutedText("  (no tags)") + "\n")
+				// Show short path hint when no tags.
+				shortPath := pb.Path
+				if len(shortPath) > p.width-10 {
+					shortPath = "…" + shortPath[len(shortPath)-(p.width-11):]
+				}
+				sb.WriteString(pbPathStyle.Render("  "+shortPath) + "\n")
 			}
 		} else {
-			sb.WriteString(pbItemStyle.Render("  "+text) + "\n")
+			// ── Normal row: name + hosts summary on one line ──────────────
+			hostsHint := ""
+			if len(pb.Hosts) > 0 {
+				labels := make([]string, 0, len(pb.Hosts))
+				for _, h := range pb.Hosts {
+					labels = append(labels, cleanHost(h))
+				}
+				hostsHint = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#374151")).
+					Render("  [" + truncateBadge(strings.Join(labels, ","), 16) + "]")
+			}
+			name := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#9CA3AF")).
+				Render("  " + truncateBadge(pb.Name, p.width-20))
+			sb.WriteString(name + hostsHint + "\n")
 		}
 	}
 
 	return sb.String()
+}
+
+// cleanHost converts a raw Ansible hosts value into a human-friendly label.
+// Jinja2 expressions like {{ target | default('all') }} become $target.
+func cleanHost(h string) string {
+	trimmed := strings.TrimSpace(h)
+	if !strings.Contains(trimmed, "{{") {
+		return trimmed
+	}
+	// Extract the variable name from {{ varname | ... }}
+	inner := trimmed
+	inner = strings.TrimPrefix(inner, "{{")
+	inner = strings.TrimSuffix(inner, "}}")
+	inner = strings.TrimSpace(inner)
+	// Drop any filters (pipe onwards)
+	if idx := strings.Index(inner, "|"); idx >= 0 {
+		inner = inner[:idx]
+	}
+	varName := strings.TrimSpace(inner)
+	if varName == "" {
+		return "(dynamic)"
+	}
+	return "$" + varName
 }
 
 func truncateBadge(s string, max int) string {
@@ -235,7 +292,15 @@ var (
 			Padding(0, 1)
 
 	extraVarsStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A78BFA")).
-			Background(lipgloss.Color("#1F2937")).
-			Padding(0, 1)
+		Foreground(lipgloss.Color("#A78BFA")).
+		Background(lipgloss.Color("#1F2937")).
+		Padding(0, 1)
+
+	pbHostsStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#22C55E")).
+		Italic(true)
+
+	pbPathStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#374151")).
+		Italic(true)
 )

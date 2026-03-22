@@ -43,6 +43,37 @@ func StreamCmd(ctx context.Context, opts core.RunOptions, sendFn func(tea.Msg)) 
 	}
 }
 
+// BuildPlaybookCommand returns the full command string that would be executed
+// for the given RunOptions, suitable for display in the UI.
+func BuildPlaybookCommand(opts core.RunOptions) string {
+	args := buildPlaybookArgs(opts)
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "ansible-playbook")
+	for _, a := range args {
+		if strings.ContainsAny(a, " \t\"'") {
+			parts = append(parts, "'"+strings.ReplaceAll(a, "'", `'"'"'`)+"'")
+		} else {
+			parts = append(parts, a)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// BuildAdHocCommand returns the full ansible ad-hoc command string for display.
+func BuildAdHocCommand(opts core.AdHocOptions) string {
+	args := buildAdHocArgs(opts)
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "ansible")
+	for _, a := range args {
+		if strings.ContainsAny(a, " \t\"'") {
+			parts = append(parts, "'"+strings.ReplaceAll(a, "'", `'"'"'`)+"'")
+		} else {
+			parts = append(parts, a)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // AdHocStreamCmd runs an ansible ad-hoc command and streams output.
 func AdHocStreamCmd(ctx context.Context, opts core.AdHocOptions, sendFn func(tea.Msg)) tea.Cmd {
 	return func() tea.Msg {

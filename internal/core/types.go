@@ -133,6 +133,8 @@ const (
 	LogLevelDiffRemove // lines starting with -
 	LogLevelDiffHunk   // lines starting with @@
 	LogLevelDiffHeader // --- / +++ file headers
+	// Command line echoed at the start of each run.
+	LogLevelCommand
 )
 
 // LogLine is a single line of streamed ansible output.

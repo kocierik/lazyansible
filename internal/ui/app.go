@@ -180,7 +180,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	if a.mode != AppModeNormal && a.mode != AppModeHelp {
+	if a.mode != AppModeNormal {
 		return a.updateOverlay(msg)
 	}
 
@@ -1214,6 +1214,14 @@ func (a *App) startRun(req panels.RunRequestMsg) tea.Cmd {
 		VaultPasswordFile: vaultFile,
 	}
 
+	// Echo the full command as the first log line so the user always knows
+	// exactly what is being executed.
+	a.logsPanel.AddLine(core.LogLine{
+		Text:      "$ " + runner.BuildPlaybookCommand(opts),
+		Level:     core.LogLevelCommand,
+		Timestamp: time.Now(),
+	})
+
 	sendFn := func(m tea.Msg) {
 		if a.program != nil {
 			a.program.Send(m)
@@ -1303,6 +1311,13 @@ func (a *App) startAdHoc(opts core.AdHocOptions) tea.Cmd {
 
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancelRun = cancel
+
+	// Echo the full command as the first log line.
+	a.logsPanel.AddLine(core.LogLine{
+		Text:      "$ " + runner.BuildAdHocCommand(opts),
+		Level:     core.LogLevelCommand,
+		Timestamp: time.Now(),
+	})
 
 	sendFn := func(m tea.Msg) {
 		if a.program != nil {
