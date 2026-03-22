@@ -12,25 +12,47 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Discover finds inventory files in the given directory.
-// It looks for common names like inventory, hosts, inventory.ini, inventory.yaml/yml.
+// inventoryCandidates is the ordered list of file names checked during auto-discovery.
+var inventoryCandidates = []string{
+	"inventory.yml", "inventory.yaml",
+	"hosts.yml", "hosts.yaml", "hosts",
+	"inventory", "inventory.ini",
+}
+
+// Discover finds inventory files by searching dir and its parent directory.
+// It checks inventoryCandidates in both locations and also scans any inventories/
+// sub-directory found in either place.
 func Discover(dir string) []string {
-	candidates := []string{
-		"inventory", "hosts", "inventory.ini", "inventory.yaml", "inventory.yml",
-	}
+	seen := map[string]bool{}
 	var found []string
-	for _, name := range candidates {
-		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err == nil {
-			found = append(found, p)
+
+	add := func(p string) {
+		abs, err := filepath.Abs(p)
+		if err != nil || seen[abs] {
+			return
+		}
+		if _, err := os.Stat(abs); err == nil {
+			seen[abs] = true
+			found = append(found, abs)
 		}
 	}
-	// Also check for inventories/ subdirectory.
-	subdir := filepath.Join(dir, "inventories")
-	if entries, err := os.ReadDir(subdir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				found = append(found, filepath.Join(subdir, e.Name()))
+
+	searchDirs := []string{dir}
+	if parent := filepath.Dir(dir); parent != dir {
+		searchDirs = append(searchDirs, parent)
+	}
+
+	for _, searchDir := range searchDirs {
+		for _, name := range inventoryCandidates {
+			add(filepath.Join(searchDir, name))
+		}
+		// Also scan any inventories/ sub-directory.
+		subdir := filepath.Join(searchDir, "inventories")
+		if entries, err := os.ReadDir(subdir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					add(filepath.Join(subdir, e.Name()))
+				}
 			}
 		}
 	}

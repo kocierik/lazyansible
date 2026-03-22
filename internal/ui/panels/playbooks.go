@@ -44,7 +44,35 @@ func (p *PlaybooksPanel) SetPlaybooks(pbs []*core.Playbook) { p.playbooks = pbs 
 func (p *PlaybooksPanel) SetLimit(limit string)             { p.limit = limit }
 func (p *PlaybooksPanel) SetActiveTags(tags string)         { p.activeTags = tags }
 func (p *PlaybooksPanel) SetExtraVars(raw string)           { p.extraVarsRaw = raw }
+func (p *PlaybooksPanel) SetCheckMode(v bool)               { p.checkMode = v }
+func (p *PlaybooksPanel) SetDiffMode(v bool)                { p.diffMode = v }
 func (p *PlaybooksPanel) CurrentLimit() string              { return p.limit }
+func (p *PlaybooksPanel) CheckMode() bool                   { return p.checkMode }
+func (p *PlaybooksPanel) DiffMode() bool                    { return p.diffMode }
+
+// SelectedTags returns the active tags as a slice (split by comma).
+func (p *PlaybooksPanel) SelectedTags() []string {
+	if p.activeTags == "" {
+		return nil
+	}
+	var tags []string
+	for _, t := range strings.Split(p.activeTags, ",") {
+		if s := strings.TrimSpace(t); s != "" {
+			tags = append(tags, s)
+		}
+	}
+	return tags
+}
+
+// SelectByName moves the cursor to the playbook whose name matches.
+func (p *PlaybooksPanel) SelectByName(name string) {
+	for i, pb := range p.playbooks {
+		if pb.Name == name {
+			p.cursor = i
+			return
+		}
+	}
+}
 
 func (p *PlaybooksPanel) SelectedPlaybook() *core.Playbook {
 	if p.cursor < len(p.playbooks) {

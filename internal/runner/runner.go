@@ -69,6 +69,22 @@ func CheckAdHocBinary() error {
 	return nil
 }
 
+// CheckLintBinary returns an error if ansible-lint is not found in PATH.
+func CheckLintBinary() error {
+	_, err := exec.LookPath("ansible-lint")
+	if err != nil {
+		return fmt.Errorf("ansible-lint not found in PATH: %w", err)
+	}
+	return nil
+}
+
+// LintCmd runs ansible-lint on the given playbook path and streams output.
+func LintCmd(ctx context.Context, playbookPath string, sendFn func(tea.Msg)) tea.Cmd {
+	return func() tea.Msg {
+		return stream(ctx, "ansible-lint", []string{"--nocolor", playbookPath}, nil, sendFn)
+	}
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 func stream(ctx context.Context, binary string, args []string, extraEnv []string, sendFn func(tea.Msg)) tea.Msg {

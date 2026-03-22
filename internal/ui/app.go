@@ -13,14 +13,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kocierik/lazyansible/internal/core"
+	"github.com/kocierik/lazyansible/internal/galaxy"
 	"github.com/kocierik/lazyansible/internal/history"
 	"github.com/kocierik/lazyansible/internal/inventory"
+	"github.com/kocierik/lazyansible/internal/runprofiles"
 	"github.com/kocierik/lazyansible/internal/runner"
 	"github.com/kocierik/lazyansible/internal/ui/panels"
 	"github.com/kocierik/lazyansible/internal/vault"
 )
 
-const version = "0.4.0"
+const version = "0.6.0"
 
 // AppMode tracks which overlay (if any) is currently shown.
 type AppMode int
@@ -37,6 +39,8 @@ const (
 	AppModeEnvSwitch
 	AppModeSSHProfile
 	AppModeHelp
+	AppModeGalaxy
+	AppModeRunProfiles
 )
 
 // Config holds the launch-time configuration.
@@ -80,6 +84,10 @@ type App struct {
 	envSwitchOverlay  *EnvSwitchOverlay
 	sshProfileOverlay *SSHProfileOverlay
 
+	// v0.6 overlays.
+	galaxyOverlay      *GalaxyOverlay
+	runProfilesOverlay *RunProfilesOverlay
+
 	// Run state.
 	inventory    *core.Inventory
 	playbooks    []*core.Playbook
@@ -97,6 +105,12 @@ type App struct {
 	sshExtraVars   string // applied SSH profile extra-vars
 	tempPlaybook   string // temp role-runner playbook (cleaned up after run)
 	logsFullscreen bool   // Z toggles logs to full height
+
+	// v0.5 state.
+	linting    bool   // ansible-lint run in progress
+	lastExport string // path of last Markdown export
+
+	// v0.6 state (nothing extra — overlays are self-contained)
 
 	err error
 }
@@ -124,6 +138,8 @@ func New(cfg Config) *App {
 	a.rolesOverlay = newRolesOverlay(0, 0)
 	a.envSwitchOverlay = newEnvSwitchOverlay(0, 0)
 	a.sshProfileOverlay = newSSHProfileOverlay(0, 0)
+	a.galaxyOverlay = newGalaxyOverlay(0, 0)
+	a.runProfilesOverlay = newRunProfilesOverlay(0, 0)
 
 	a.updateFocus()
 	return a
@@ -144,6 +160,8 @@ func (a *App) Init() tea.Cmd {
 type inventoryLoadedMsg struct{ inv *core.Inventory }
 type playbooksLoadedMsg struct{ pbs []*core.Playbook }
 type vaultScanDoneMsg struct{ hasVault bool }
+type lintFinishedMsg struct{ exitCode int }
+type exportDoneMsg struct{ path string; err error }
 type errMsg struct{ err error }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -153,6 +171,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = sz.Width
 		a.height = sz.Height
 		a.resizePanels()
+		return a, nil
+	}
+
+	// Mouse click: focus the panel under the cursor.
+	if mouse, ok := msg.(tea.MouseMsg); ok && mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
+		a.handleMouseClick(mouse.X, mouse.Y)
 		return a, nil
 	}
 
@@ -187,6 +211,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runner.RunFinishedMsg:
 		return a, a.handleRunFinished(msg)
 
+	case lintFinishedMsg:
+		a.linting = false
+		if msg.exitCode == 0 {
+			a.statusMsg = "ansible-lint: no issues found ✓"
+		} else {
+			a.statusMsg = fmt.Sprintf("ansible-lint: issues found (exit %d) — see logs", msg.exitCode)
+		}
+
+	case exportDoneMsg:
+		if msg.err != nil {
+			a.statusMsg = "Export failed: " + msg.err.Error()
+		} else {
+			a.lastExport = msg.path
+			a.statusMsg = "Exported → " + msg.path
+		}
+
 	case panels.RunRequestMsg:
 		return a, a.startRun(msg)
 
@@ -203,6 +243,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.mode = AppModeNormal
 		return a, nil
 
+	case galaxyLoadedMsg:
+		return a, a.galaxyOverlay.Update(msg)
+
+	case galaxyInstallDoneMsg:
+		return a, a.galaxyOverlay.Update(msg)
+
+	case RunProfileLoadMsg:
+		a.applyRunProfile(msg.Profile)
+		a.mode = AppModeNormal
+		a.statusMsg = fmt.Sprintf("Profile loaded: %s", msg.Profile.Name)
+		return a, nil
+
 	case errMsg:
 		a.statusMsg = "Error: " + msg.err.Error()
 
@@ -214,6 +266,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) updateNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// When the log panel's search bar is active, forward ALL key events to it
+	// so global shortcuts (q, V, etc.) don't fire during text input.
+	if a.focused == core.PanelLogs && a.logsPanel.SearchActive() {
+		return a, a.delegateToPanel(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c", "q":
 		if a.cancelRun != nil {
@@ -350,6 +408,83 @@ func (a *App) updateNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.mode = AppModeSSHProfile
 		return a, nil
 
+	case "L":
+		// Ansible-lint on the selected playbook.
+		if a.running || a.linting {
+			a.statusMsg = "Cannot lint while a run is in progress"
+			return a, nil
+		}
+		if pb := a.pbPanel.SelectedPlaybook(); pb != nil {
+			if err := runner.CheckLintBinary(); err != nil {
+				a.statusMsg = err.Error()
+				return a, nil
+			}
+			a.linting = true
+			a.logsPanel.Clear()
+			a.statusMsg = fmt.Sprintf("Linting %s…", pb.Name)
+			ctx, cancel := context.WithCancel(a.ctx)
+			a.cancelRun = cancel
+			sendFn := func(m tea.Msg) {
+				if a.program != nil {
+					a.program.Send(m)
+				}
+			}
+			return a, func() tea.Msg {
+				msg := runner.LintCmd(ctx, pb.Path, sendFn)()
+				if rf, ok := msg.(runner.RunFinishedMsg); ok {
+					return lintFinishedMsg{exitCode: rf.ExitCode}
+				}
+				return lintFinishedMsg{exitCode: -1}
+			}
+		}
+		a.statusMsg = "No playbook selected"
+
+	case "X":
+		// Export run summary as Markdown.
+		lines := a.logsPanel.Lines()
+		if len(lines) == 0 {
+			a.statusMsg = "Nothing to export yet"
+			return a, nil
+		}
+		rec := a.runRecord // may be nil if run already finished
+		workDir := a.config.WorkDir
+		return a, func() tea.Msg {
+			path, err := exportRunMarkdown(workDir, rec, lines)
+			return exportDoneMsg{path: path, err: err}
+		}
+
+	// ── v0.6 overlays ─────────────────────────────────────────────────────
+
+	case "A":
+		// Ansible Galaxy browser.
+		if err := checkGalaxyBinary(); err != nil {
+			a.statusMsg = err.Error()
+			return a, nil
+		}
+		a.mode = AppModeGalaxy
+		return a, a.galaxyOverlay.Load()
+
+	case "F":
+		// Run profiles.
+		a.runProfilesOverlay.reload()
+		// Snapshot current state for save.
+		pb := a.pbPanel.SelectedPlaybook()
+		pbName := ""
+		if pb != nil {
+			pbName = pb.Name
+		}
+		a.runProfilesOverlay.SetSnapshot(
+			pbName,
+			a.pbPanel.CurrentLimit(),
+			a.pbPanel.SelectedTags(),
+			a.extraVarsRaw,
+			a.pbPanel.CheckMode(),
+			a.pbPanel.DiffMode(),
+			a.config.InventoryPath,
+		)
+		a.mode = AppModeRunProfiles
+		return a, nil
+
 	case "enter":
 		if a.focused == core.PanelInventory {
 			if host := a.invPanel.SelectedHost(); host != "" {
@@ -482,6 +617,21 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 		}
+
+	case AppModeGalaxy:
+		// Galaxy overlay may emit async commands (load/install).
+		cmd = a.galaxyOverlay.Update(msg)
+
+	case AppModeRunProfiles:
+		cmd = a.runProfilesOverlay.Update(msg)
+		if cmd != nil {
+			if rp, ok := evalCmd(cmd).(RunProfileLoadMsg); ok {
+				a.applyRunProfile(rp.Profile)
+				a.mode = AppModeNormal
+				a.statusMsg = fmt.Sprintf("Profile loaded: %s", rp.Profile.Name)
+				return a, nil
+			}
+		}
 	}
 
 	return a, cmd
@@ -538,6 +688,10 @@ func (a *App) View() string {
 		return a.renderOverlay(a.envSwitchOverlay.View())
 	case AppModeSSHProfile:
 		return a.renderOverlay(a.sshProfileOverlay.View())
+	case AppModeGalaxy:
+		return a.renderOverlay(a.galaxyOverlay.View())
+	case AppModeRunProfiles:
+		return a.renderOverlay(a.runProfilesOverlay.View())
 	}
 
 	return a.baseView()
@@ -709,6 +863,9 @@ func (a *App) renderHeader() string {
 	if a.running {
 		runIndicator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#06B6D4")).Bold(true).Render("  ▶ RUNNING")
+	} else if a.linting {
+		runIndicator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F59E0B")).Bold(true).Render("  ⚑ LINTING")
 	}
 
 	tabs := strings.Join([]string{
@@ -739,9 +896,9 @@ func (a *App) renderStatusBar() string {
 	case core.PanelInventory:
 		hints = []string{"[v]vars", "[!]adhoc", "[enter]limit"}
 	case core.PanelPlaybooks:
-		hints = []string{"[r]run", "[t]tags", "[e]vars", "[c]check", "[d]diff"}
+		hints = []string{"[r]run", "[L]lint", "[t]tags", "[e]vars", "[c]check", "[d]diff"}
 	case core.PanelLogs:
-		hints = []string{"[k/j]scroll", "[G]end", "[T]time", "[ctrl+l]clear"}
+		hints = []string{"[k/j]scroll", "[/]search", "[G]end", "[T]time", "[ctrl+l]clear"}
 	default:
 		hints = []string{"[r]run"}
 	}
@@ -787,58 +944,135 @@ func (a *App) renderStatusBar() string {
 }
 
 func (a *App) helpContent() string {
-	help := `
- lazyansible v` + version + ` – keyboard shortcuts
- ──────────────────────────────────────────────────────
+	// ── Styles ────────────────────────────────────────────────────────────────
+	sectionStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED")).Bold(true)
+	keyCol := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#06B6D4")).Bold(true)
+	descCol := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#D1D5DB"))
+	dimStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4B5563"))
 
- Navigation
-   tab / shift+tab     cycle panels
-   1 2 3 4             jump to panel
-   j / k               move down / up
-   g / G               jump to top / bottom
+	// row builds one shortcut line: fixed-width key + description.
+	row := func(k, desc string) string {
+		return "  " + keyCol.Render(fmt.Sprintf("%-18s", k)) + descCol.Render(desc)
+	}
+	blank := ""
 
- Inventory panel
-   enter / space       expand / collapse group
-   enter on host       set as playbook run limit
-   v                   variable browser for host/group
-   !                   ad-hoc command runner
+	// ── Left column: Navigation · Inventory · Playbooks ───────────────────────
+	left := strings.Join([]string{
+		sectionStyle.Render("Navigation"),
+		row("tab / shift+tab", "cycle panels"),
+		row("1  2  3  4", "jump to panel"),
+		row("j / k", "move down / up"),
+		row("g / G", "top / bottom"),
+		blank,
+		sectionStyle.Render("Inventory panel"),
+		row("enter / space", "expand / collapse group"),
+		row("enter on host", "set as run limit"),
+		row("v", "variable browser"),
+		row("!", "ad-hoc command runner"),
+		blank,
+		sectionStyle.Render("Playbooks panel"),
+		row("r / enter", "run selected playbook"),
+		row("c", "--check mode"),
+		row("d", "--diff mode"),
+		row("t", "tags browser"),
+		row("e", "--extra-vars"),
+		row("L", "ansible-lint"),
+		blank,
+		sectionStyle.Render("Logs panel (focused)"),
+		row("/", "open search bar"),
+		row("n / N", "next / prev match"),
+		row("j / k", "scroll down / up"),
+		row("ctrl+d / ctrl+u", "half-page scroll"),
+		row("G / g", "bottom / top"),
+		row("T", "toggle timestamps"),
+		row("ctrl+l / Z", "clear / fullscreen toggle"),
+	}, "\n")
 
- Playbooks panel
-   r / enter           run selected playbook
-   c                   toggle --check mode
-   d                   toggle --diff mode
-   t                   tags browser (multi-select + filter)
-   e                   set --extra-vars
+	// ── Right column: Run control · Tools · Global ─────────────────────────
+	right := strings.Join([]string{
+		sectionStyle.Render("Run control"),
+		row("V", "vault password"),
+		row("H", "run history"),
+		row("R", "retry failed hosts"),
+		row("X", "export logs → Markdown"),
+		blank,
+		sectionStyle.Render("Tools"),
+		row("O", "role browser"),
+		row("N", "switch inventory"),
+		row("P", "SSH profile manager"),
+		blank,
+		sectionStyle.Render("v0.6 — new"),
+		row("A", "Ansible Galaxy browser"),
+		row("F", "run profiles (save/load)"),
+		blank,
+		sectionStyle.Render("Global"),
+		row("?", "toggle this help"),
+		row("q / ctrl+c", "quit"),
+		row("mouse click", "focus panel"),
+	}, "\n")
 
- Logs panel
-   j / k               scroll down / up
-   ctrl+d / ctrl+u     half-page scroll
-   G                   jump to bottom
-   T                   toggle timestamps
-   ctrl+l              clear logs
-   Z                   toggle fullscreen logs (hides top panels)
+	// ── Assembly ──────────────────────────────────────────────────────────────
+	boxW := min(a.width-4, 106)
+	colW := boxW/2 - 2
 
- Global (v0.3)
-   V                   set Ansible Vault password
-   H                   browse run history (re-run from history)
-   R                   retry failed hosts from last run
+	leftPane := lipgloss.NewStyle().Width(colW).Render(left)
+	rightPane := lipgloss.NewStyle().
+		PaddingLeft(2).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#374151")).
+		Width(colW + 2).
+		Render(right)
+	cols := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
- Global (v0.4)
-   O                   role browser (view tasks, defaults, run role)
-   N                   switch environment / inventory at runtime
-   P                   SSH profile manager (apply connection params)
-   --diff output       +/- lines auto-highlighted in logs panel
+	title := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED")).Bold(true).
+		Render("lazyansible v" + version + " — keyboard shortcuts")
+	divider := dimStyle.Render(strings.Repeat("─", boxW-6))
 
- Global
-   ?                   toggle this help
-   q / ctrl+c          quit (cancels active run)
-`
-	return overlayBoxStyle.
-		Width(min(a.width-8, 64)).
-		Render(lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB")).Render(help))
+	content := title + "\n" + divider + "\n\n" + cols
+
+	return overlayBoxStyle.Width(boxW).Render(content)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// handleMouseClick focuses the panel that contains the clicked cell.
+func (a *App) handleMouseClick(x, y int) {
+	if a.mode != AppModeNormal || a.logsFullscreen {
+		return
+	}
+	// Row 0 = header, rows 1..topH = top panels, rows topH+1.. = logs.
+	topH := topPanelHeight
+	if topH > a.height-6 {
+		topH = a.height - 6
+	}
+
+	if y == 0 || y >= a.height-1 {
+		return // header or statusbar
+	}
+
+	if y >= 1 && y <= topH {
+		// Top row: determine which column.
+		invW := a.width / 4
+		pbW := a.width / 4
+		switch {
+		case x < invW:
+			a.focused = core.PanelInventory
+		case x < invW+pbW:
+			a.focused = core.PanelPlaybooks
+		default:
+			a.focused = core.PanelStatus
+		}
+	} else {
+		a.focused = core.PanelLogs
+	}
+	a.updateFocus()
+}
 
 func (a *App) cycleFocus(dir int) {
 	order := []core.Panel{
@@ -906,6 +1140,10 @@ func (a *App) resizePanels() {
 	a.envSwitchOverlay.height = a.height
 	a.sshProfileOverlay.width = a.width
 	a.sshProfileOverlay.height = a.height
+	a.galaxyOverlay.width = a.width
+	a.galaxyOverlay.height = a.height
+	a.runProfilesOverlay.width = a.width
+	a.runProfilesOverlay.height = a.height
 }
 
 // ─── Run lifecycle ────────────────────────────────────────────────────────────
@@ -1236,6 +1474,12 @@ func loadInventoryCmd(cfg Config) tea.Cmd {
 	}
 }
 
+// playbookStdNames are the well-known root-level playbook file names.
+var playbookStdNames = []string{
+	"playbook.yml", "playbook.yaml",
+	"site.yml", "site.yaml",
+}
+
 func loadPlaybooksCmd(cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		dir := cfg.PlaybookDir
@@ -1246,6 +1490,71 @@ func loadPlaybooksCmd(cfg Config) tea.Cmd {
 		if err != nil {
 			return errMsg{err: fmt.Errorf("discover playbooks: %w", err)}
 		}
+
+		// If nothing found, also search the parent directory for standard names.
+		if len(pbs) == 0 {
+			parent := filepath.Dir(dir)
+			if parent != dir {
+				pbsParent, _ := inventory.DiscoverPlaybooks(parent)
+				pbs = append(pbs, pbsParent...)
+			}
+		}
+
+		// Additionally surface any standard-named playbooks in . and .. that
+		// the walker might have skipped (e.g. site.yml at repo root above dir).
+		seen := map[string]bool{}
+		for _, p := range pbs {
+			seen[p.Path] = true
+		}
+		for _, searchDir := range []string{dir, filepath.Dir(dir)} {
+			for _, name := range playbookStdNames {
+				p := filepath.Join(searchDir, name)
+				abs, _ := filepath.Abs(p)
+				if seen[abs] {
+					continue
+				}
+				if extra, ok := inventory.ParseSinglePlaybook(p); ok {
+					seen[abs] = true
+					pbs = append(pbs, extra)
+				}
+			}
+		}
+
 		return playbooksLoadedMsg{pbs: pbs}
 	}
+}
+
+// ─── v0.6 helpers ─────────────────────────────────────────────────────────────
+
+// checkGalaxyBinary returns an error if ansible-galaxy is not available.
+func checkGalaxyBinary() error {
+	return galaxy.CheckBinary()
+}
+
+// applyRunProfile loads a saved profile into the active run state.
+func (a *App) applyRunProfile(p runprofiles.Profile) {
+	// Switch inventory if specified and different.
+	if p.Inventory != "" && p.Inventory != a.config.InventoryPath {
+		_ = a.switchInventory(p.Inventory)
+	}
+	// Apply playbook selection by name.
+	if p.Playbook != "" {
+		a.pbPanel.SelectByName(p.Playbook)
+	}
+	// Apply limit.
+	if p.Limit != "" {
+		a.pbPanel.SetLimit(p.Limit)
+	}
+	// Apply tags.
+	if len(p.Tags) > 0 {
+		a.pbPanel.SetActiveTags(strings.Join(p.Tags, ","))
+	} else {
+		a.pbPanel.SetActiveTags("")
+	}
+	// Apply extra-vars.
+	a.extraVarsRaw = p.ExtraVars
+	a.pbPanel.SetExtraVars(p.ExtraVars)
+	// Apply modes.
+	a.pbPanel.SetCheckMode(p.CheckMode)
+	a.pbPanel.SetDiffMode(p.DiffMode)
 }

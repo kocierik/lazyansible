@@ -42,6 +42,13 @@ Running Ansible from the CLI is powerful but low-visibility: you get a wall of t
 | Multi-environment switcher — hot-swap inventory at runtime (`N`) | ✅ v0.4 |
 | SSH profile manager — save & apply connection params (`P`) | ✅ v0.4 |
 | Diff visualisation — `+`/`-` lines colour-coded in logs panel | ✅ v0.4 |
+| Auto-discovery checks `.` **and** `..` for standard inventory/playbook names | ✅ v0.5 |
+| `ansible-lint` integration — lint selected playbook before running (`L`) | ✅ v0.5 |
+| Export run summary as Markdown with host status table (`X`) | ✅ v0.5 |
+| Mouse support — click to focus any panel | ✅ v0.5 |
+| Log search — `/` to filter, `n`/`N` to jump between highlighted matches | ✅ v0.6 |
+| Run profiles — save/load named run configurations (`F`) | ✅ v0.6 |
+| Ansible Galaxy browser — list & install roles/collections (`A`) | ✅ v0.6 |
 
 ---
 
@@ -108,6 +115,13 @@ lazyansible -i inventories/staging.yaml -d playbooks/
 | `O` | Global | Role browser (inspect tasks/defaults, run role) |
 | `N` | Global | Switch environment / inventory file at runtime |
 | `P` | Global | SSH profile manager (save & apply connection params) |
+| `L` | Playbooks | Run `ansible-lint` on selected playbook |
+| `X` | Global | Export logs + run metadata as Markdown file |
+| `/` | Logs (focused) | Open search bar; highlights matching lines |
+| `n` / `N` | Logs (focused) | Jump to next / previous search match |
+| `A` | Global | Ansible Galaxy browser (list & install roles/collections) |
+| `F` | Global | Run profiles — save current config or load a saved one |
+| click | Global | Mouse click focuses the panel under the cursor |
 | `?` | Global | Toggle help overlay |
 | `q` / `ctrl+c` | Global | Quit (cancels active run) |
 
@@ -136,6 +150,9 @@ internal/
     roles_overlay.go      # Two-pane role browser + temp playbook runner
     envswitch_overlay.go  # Runtime inventory switcher
     sshprofile_overlay.go # SSH profile form + apply
+    export.go             # Markdown run-report exporter
+    galaxy_overlay.go     # Ansible Galaxy browser (list/install roles & collections)
+    runprofiles_overlay.go # Run profiles — save/load named configurations
 internal/
   history/
     history.go            # JSON run records in ~/.lazyansible/history/
@@ -145,6 +162,10 @@ internal/
     scanner.go            # Scan roles/ dir, parse tasks/defaults/handlers/meta
   ssh/
     profiles.go           # SSH profiles stored in ~/.lazyansible/ssh-profiles.json
+  galaxy/
+    galaxy.go             # ansible-galaxy CLI wrapper (list/install roles & collections)
+  runprofiles/
+    profiles.go           # Named run configurations stored in ~/.lazyansible/run-profiles.json
     panels/
       inventory.go        # Inventory tree panel
       playbooks.go        # Playbook list panel (badges, inline tags)
@@ -191,27 +212,37 @@ ansible/                  # Sample Ansible project for testing
 - [x] **`--become` toggle** in ad-hoc overlay (tab to reach, space/enter to toggle)
 - [x] Layout fix: `resizePanels` now uses correct border math (no more empty space)
 
-### v0.4 ✅ (current)
+### v0.4 ✅
 - [x] **Role browser** (`O`) — two-pane overlay listing roles with tasks, defaults, handlers, deps; press `enter` to run the role directly via a generated temp playbook
 - [x] **Multi-environment switcher** (`N`) — discover all inventory files in the project and hot-swap the active one at runtime without restarting
 - [x] **SSH profile manager** (`P`) — create, delete and apply named SSH connection profiles (`ansible_user`, `ansible_ssh_private_key_file`, etc.) as extra-vars; stored in `~/.lazyansible/ssh-profiles.json`; 🔑 badge shown when a profile is active
 - [x] **Diff visualisation** — `--diff` output lines now rendered with distinct colours: `+` lines bright green, `-` lines bright red, `@@` hunks cyan, `--- / +++` headers bold white
 
-### v0.5 (planned)
-- [ ] **Auto-discovery improvement** — check both `.` and `..` for common inventory and playbook names:
+### v0.5 ✅
+- [x] **Auto-discovery improvement** — checks both `.` and `..` for standard names:
   - Inventory: `inventory.yml`, `inventory.yaml`, `hosts.yml`, `hosts.yaml`, `hosts`
   - Playbook: `playbook.yml`, `playbook.yaml`, `site.yml`, `site.yaml`
-- [ ] Plugin system for custom panels
-- [ ] Mouse support
-- [ ] Export run summary as Markdown
+- [x] **`ansible-lint` integration** (`L`) — run the linter on the selected playbook; output streams live in the log panel; header shows `⚑ LINTING` badge
+- [x] **Export as Markdown** (`X`) — saves `lazyansible-run-TIMESTAMP.md` in the working directory with run metadata, host status table, and full log output
+- [x] **Mouse support** — click to focus any panel (inventory, playbooks, status, logs)
+
+### v0.6 ✅ (current)
+- [x] **Log search** (`/`) — opens an interactive search bar in the logs panel; matching lines are highlighted (current match in purple, others in dark indigo); press `n`/`N` to jump between matches, `Esc` to close
+- [x] **Run profiles** (`F`) — save the current run configuration (playbook, limit, tags, extra-vars, --check/--diff, inventory) as a named profile stored in `~/.lazyansible/run-profiles.json`; load it back with a single keystroke
+- [x] **Ansible Galaxy browser** (`A`) — two-tab overlay listing all installed roles and collections; press `i` to install a new one via `ansible-galaxy role/collection install`; list auto-refreshes after each install
+
+### v0.7 (planned)
 - [ ] Integration with AWX / Ansible Tower API
-- [ ] Role Galaxy integration (browse & install roles)
+- [ ] Plugin system for custom panels
+- [ ] Multi-pane diff viewer (side-by-side before/after)
+- [ ] Export run summary as HTML
 
 ### Backlog / ideas
-- [ ] Multi-pane diff viewer (side-by-side before/after)
-- [ ] Ansible lint integration
-- [ ] Export run summary as Markdown
 - [ ] Integration with AWX / Ansible Tower API
+- [ ] Plugin system for custom panels
+- [ ] Multi-pane diff viewer (side-by-side before/after)
+- [ ] Export run summary as HTML
+- [ ] Inventory graph view (group hierarchy visualisation)
 
 ---
 

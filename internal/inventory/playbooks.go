@@ -46,6 +46,12 @@ func DiscoverPlaybooks(dir string) ([]*core.Playbook, error) {
 	return playbooks, err
 }
 
+// ParseSinglePlaybook attempts to parse a single file as an Ansible playbook.
+// It is exported so callers (e.g. loadPlaybooksCmd) can probe specific paths.
+func ParseSinglePlaybook(path string) (*core.Playbook, bool) {
+	return looksLikePlaybook(path)
+}
+
 // looksLikePlaybook returns a Playbook if the file is a valid Ansible playbook.
 func looksLikePlaybook(path string) (*core.Playbook, bool) {
 	data, err := os.ReadFile(path)
