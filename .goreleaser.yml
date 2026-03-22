@@ -97,7 +97,7 @@ brews:
     homepage: "https://github.com/kocierik/lazyansible"
     description: "A lazy TUI for Ansible — browse inventory, run playbooks, stream logs"
     license: "MIT"
-    folder: Formula
+    directory: Formula
     install: |
       bin.install "lazyansible"
     test: |
