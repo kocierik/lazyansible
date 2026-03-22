@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/kocierik/lazyansible/internal/core"
@@ -18,91 +17,70 @@ func exportRunMarkdown(workDir string, rec *history.Record, lines []core.LogLine
 	fname := fmt.Sprintf("lazyansible-run-%s.md", now.Format("20060102-150405"))
 	dest := filepath.Join(workDir, fname)
 
-	var sb strings.Builder
+	var sb []byte
+	app := func(s string) { sb = append(sb, s...) }
 
-	sb.WriteString("# lazyansible run report\n\n")
-	sb.WriteString(fmt.Sprintf("**Generated**: %s\n\n", now.Format("2006-01-02 15:04:05")))
+	app("# lazyansible run report\n\n")
+	app(fmt.Sprintf("**Generated**: %s\n\n", now.Format("2006-01-02 15:04:05")))
 
 	// Metadata section.
 	if rec != nil {
-		sb.WriteString("## Run metadata\n\n")
-		sb.WriteString(fmt.Sprintf("| Key | Value |\n|---|---|\n"))
+		app("## Run metadata\n\n")
+		app("| Key | Value |\n|---|---|\n")
 		if rec.Kind == "adhoc" {
-			sb.WriteString(fmt.Sprintf("| Type | ad-hoc |\n"))
-			sb.WriteString(fmt.Sprintf("| Module | `%s` |\n", rec.Module))
+			app("| Type | ad-hoc |\n")
+			app(fmt.Sprintf("| Module | `%s` |\n", rec.Module))
 			if rec.Args != "" {
-				sb.WriteString(fmt.Sprintf("| Args | `%s` |\n", rec.Args))
+				app(fmt.Sprintf("| Args | `%s` |\n", rec.Args))
 			}
 		} else {
-			sb.WriteString(fmt.Sprintf("| Type | playbook |\n"))
-			sb.WriteString(fmt.Sprintf("| Playbook | `%s` |\n", rec.PlaybookName))
-			sb.WriteString(fmt.Sprintf("| Path | `%s` |\n", rec.PlaybookPath))
+			app("| Type | playbook |\n")
+			app(fmt.Sprintf("| Playbook | `%s` |\n", rec.PlaybookName))
+			app(fmt.Sprintf("| Path | `%s` |\n", rec.PlaybookPath))
 		}
-		sb.WriteString(fmt.Sprintf("| Inventory | `%s` |\n", rec.Inventory))
+		app(fmt.Sprintf("| Inventory | `%s` |\n", rec.Inventory))
 		if rec.Limit != "" {
-			sb.WriteString(fmt.Sprintf("| Limit | `%s` |\n", rec.Limit))
+			app(fmt.Sprintf("| Limit | `%s` |\n", rec.Limit))
 		}
 		if rec.Tags != "" {
-			sb.WriteString(fmt.Sprintf("| Tags | `%s` |\n", rec.Tags))
+			app(fmt.Sprintf("| Tags | `%s` |\n", rec.Tags))
 		}
 		if rec.ExtraVars != "" {
-			sb.WriteString(fmt.Sprintf("| Extra vars | `%s` |\n", rec.ExtraVars))
+			app(fmt.Sprintf("| Extra vars | `%s` |\n", rec.ExtraVars))
 		}
 		if rec.CheckMode {
-			sb.WriteString("| Mode | check |\n")
+			app("| Mode | check |\n")
 		}
 		if rec.DiffMode {
-			sb.WriteString("| Diff | yes |\n")
+			app("| Diff | yes |\n")
 		}
-		sb.WriteString(fmt.Sprintf("| Start | %s |\n", rec.StartTime.Format("2006-01-02 15:04:05")))
+		app(fmt.Sprintf("| Start | %s |\n", rec.StartTime.Format("2006-01-02 15:04:05")))
 		if !rec.EndTime.IsZero() {
-			sb.WriteString(fmt.Sprintf("| Duration | %s |\n", rec.Duration()))
-			sb.WriteString(fmt.Sprintf("| Exit code | %d |\n", rec.ExitCode))
+			app(fmt.Sprintf("| Duration | %s |\n", rec.Duration()))
+			app(fmt.Sprintf("| Exit code | %d |\n", rec.ExitCode))
 		}
-		sb.WriteString("\n")
+		app("\n")
 
 		// Host status table.
 		if len(rec.HostStats) > 0 {
-			sb.WriteString("## Host status\n\n")
-			sb.WriteString("| Host | Status |\n|---|---|\n")
+			app("## Host status\n\n")
+			app("| Host | Status |\n|---|---|\n")
 			for host, status := range rec.HostStats {
-				sb.WriteString(fmt.Sprintf("| %s | %s |\n", host, status))
+				app(fmt.Sprintf("| %s | %s |\n", host, status))
 			}
-			sb.WriteString("\n")
+			app("\n")
 		}
 	}
 
 	// Log output section.
 	if len(lines) > 0 {
-		sb.WriteString("## Log output\n\n```\n")
+		app("## Log output\n\n```\n")
 		for _, l := range lines {
-			// Write raw text (no ANSI codes — these are the pre-style strings).
-			sb.WriteString(l.Text)
-			sb.WriteByte('\n')
+			app(l.Text)
+			app("\n")
 		}
-		sb.WriteString("```\n")
+		app("```\n")
 	}
 
-	return dest, os.WriteFile(dest, []byte(sb.String()), 0o644)
-}
-
-// stripAnsi removes ANSI escape sequences from a string.
-// Used when the caller only has already-styled text.
-func stripAnsi(s string) string {
-	var out strings.Builder
-	inSeq := false
-	for _, r := range s {
-		if r == '\x1b' {
-			inSeq = true
-			continue
-		}
-		if inSeq {
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inSeq = false
-			}
-			continue
-		}
-		out.WriteRune(r)
-	}
-	return out.String()
+	return dest, os.WriteFile(dest, sb, 0o644)
 }

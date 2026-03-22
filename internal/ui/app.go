@@ -119,8 +119,6 @@ type App struct {
 
 	// v0.7 state.
 	notifyOnFinish bool // send desktop notification when run completes
-
-	err error
 }
 
 // New creates a new App with the given configuration.
@@ -1131,10 +1129,6 @@ func (a *App) renderStatusBar() string {
 	sep := sepStyle.Render("  │  ")
 
 	// ── Context-specific groups ───────────────────────────────────────────
-	type group struct {
-		items []string
-	}
-
 	var contextGroup []string
 	switch a.focused {
 	case core.PanelInventory:
@@ -1382,17 +1376,6 @@ func (a *App) helpContent() string {
 	content = clipLines(content, maxBoxH-2) // -2 for box border
 
 	return overlayBoxStyle.Width(boxW).Render(content)
-}
-
-func max3(a, b, c int) int {
-	m := a
-	if b > m {
-		m = b
-	}
-	if c > m {
-		m = c
-	}
-	return m
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

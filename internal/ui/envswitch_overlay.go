@@ -117,11 +117,8 @@ func (o *EnvSwitchOverlay) View() string {
 
 		// Active indicator.
 		dot := "○ "
-		dotStyle := overlayMutedStyle
 		if e.Active {
 			dot = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("● ")
-			dotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
-			_ = dotStyle
 		}
 
 		counts := fmt.Sprintf("%2d hosts  %2d groups", e.HostCount, e.GroupCount)

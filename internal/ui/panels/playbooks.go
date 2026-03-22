@@ -256,9 +256,6 @@ func truncateBadge(s string, max int) string {
 }
 
 var (
-	pbItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D1D5DB"))
-
 	pbSelectedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#06B6D4")).
 			Bold(true).

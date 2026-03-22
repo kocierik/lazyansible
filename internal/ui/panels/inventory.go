@@ -225,13 +225,6 @@ var (
 				Background(lipgloss.Color("#1F2937"))
 )
 
-func panelTitle(s string) string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#06B6D4")).
-		Bold(true).
-		Render(s) + "\n"
-}
-
 func mutedText(s string) string {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#4B5563")).

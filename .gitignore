@@ -1,6 +1,7 @@
 # Binaries
 /lazyansible
 dist/
+bin/
 
 # Local Ansible test environment (not part of the distributed project)
 ansible/

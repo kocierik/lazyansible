@@ -405,10 +405,6 @@ func (g *GalaxyOverlay) View() string {
 			if g.filterQuery != "" {
 				name = highlightMatch(name, g.filterQuery)
 			}
-			namePad := truncateStr(item.Name, 38)
-			if g.filterQuery != "" && len(namePad) < 38 {
-				namePad = item.Name
-			}
 			line := fmt.Sprintf("  %-38s  %s",
 				truncateStr(item.Name, 38),
 				truncateStr(item.Version, 12),
@@ -502,7 +498,7 @@ func (g *GalaxyOverlay) viewResult(boxW, boxH int, sb *strings.Builder) string {
 	lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB"))
 	for _, l := range lines[start:end] {
 		// Colour key output lines for readability.
-		rendered := l
+		var rendered string
 		switch {
 		case strings.HasPrefix(l, "- downloading") || strings.HasPrefix(l, "- extracting"):
 			rendered = lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Render(l)

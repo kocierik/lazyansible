@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kocierik/lazyansible/internal/ssh"
 )
@@ -236,7 +235,3 @@ func (o *SSHProfileOverlay) viewForm(boxW, boxH int) string {
 	sb.WriteString("\n" + overlayHintStyle.Render("[tab] next field  [enter] on last = save  [esc] cancel"))
 	return overlayBoxStyle.Width(boxW).Height(boxH).Render(sb.String())
 }
-
-var sshAppliedStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("#22C55E")).
-	Bold(true)

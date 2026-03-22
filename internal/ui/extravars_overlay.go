@@ -5,7 +5,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // ExtraVarsConfirmedMsg is sent when the user confirms extra vars.
@@ -74,20 +73,4 @@ func (e *ExtraVarsOverlay) View() string {
 		Width(boxW).
 		Height(12).
 		Render(sb.String())
-}
-
-// extraVarsBadge renders a small pill shown in the playbooks panel.
-func extraVarsBadge(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	short := raw
-	if len([]rune(raw)) > 24 {
-		short = string([]rune(raw)[:23]) + "…"
-	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#A78BFA")).
-		Background(lipgloss.Color("#1F2937")).
-		Padding(0, 1).
-		Render("-e " + short)
 }

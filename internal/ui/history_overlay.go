@@ -112,7 +112,7 @@ func (h *HistoryOverlay) View() string {
 		selected := i == h.cursor
 
 		result := r.Result()
-		resultStyle := overlayMutedStyle
+		var resultStyle lipgloss.Style
 		if r.ExitCode == 0 {
 			resultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
 		} else {
