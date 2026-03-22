@@ -14,24 +14,7 @@
 
 ---
 
-```
-╭─ Inventory ──────────────╮╭─ Playbooks ──────────────╮╭─ Status ────────────────────────────────╮
-│ ▶ all (4)                ││ ▶ local-test.yml         ││ ✓ localhost        ok=12 changed=2       │
-│   webservers (2)         ││   deploy.yml             ││                                          │
-│     webserver01          ││   gather-facts.yml       ││                                          │
-│     webserver02          ││   rollback.yml           ││                                          │
-│   dbservers (1)          ││   site.yml               ││                                          │
-│     dbserver01           ││   update-packages.yml    ││                                          │
-╰──────────────────────────╯╰──────────────────────────╯╰──────────────────────────────────────────╯
-╭─ Logs ───────────────────────────────────────────────────── ↓ 47/47 (100%) ─────────────────────╮
-│ $ ansible-playbook local-test.yml -i inventories/local.ini                                       │
-│ ── PLAY [Test local connection] ──────────────────────────────────────────────────────────────── │
-│ ── TASK [Gathering Facts] ────────────────────────────────────────────────────────────────────── │
-│ ok: [localhost]                                                                                   │
-│ ── TASK [Print hello message] ────────────────────────────────────────────────────────────────── │
-│ ok: [localhost] => { "msg": "Hello from lazyansible" }                                           │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+<img width="1331" height="707" alt="lazyansible TUI" src="https://github.com/user-attachments/assets/fb7a46d6-4417-47d7-97c2-7fd8f28c4c2f" />
 
 ---
 
