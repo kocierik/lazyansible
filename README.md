@@ -1,8 +1,8 @@
 # lazyansible
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-7C3AED?style=flat-square" alt="version">
-  <img src="https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=flat-square&logo=go" alt="go version">
+  <img src="https://img.shields.io/badge/version-1.0.2-7C3AED?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=flat-square&logo=go" alt="go version">
   <img src="https://img.shields.io/badge/license-MIT-22C55E?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-06B6D4?style=flat-square" alt="platform">
 </p>
