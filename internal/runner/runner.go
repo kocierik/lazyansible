@@ -25,6 +25,7 @@ type LogMsg struct {
 type RunFinishedMsg struct {
 	ExitCode int
 	Err      error
+	Duration time.Duration
 }
 
 // HostStatusMsg is sent when a host status change is detected in output.
@@ -119,6 +120,7 @@ func LintCmd(ctx context.Context, playbookPath string, sendFn func(tea.Msg)) tea
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 func stream(ctx context.Context, binary string, args []string, extraEnv []string, sendFn func(tea.Msg)) tea.Msg {
+	start := time.Now()
 	cmd := exec.CommandContext(ctx, binary, args...)
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
@@ -158,15 +160,16 @@ func stream(ctx context.Context, binary string, args []string, extraEnv []string
 	<-done
 	<-done
 
+	elapsed := time.Since(start)
 	exitCode := 0
 	if err := cmd.Wait(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return RunFinishedMsg{ExitCode: -1, Err: err}
+			return RunFinishedMsg{ExitCode: -1, Err: err, Duration: elapsed}
 		}
 	}
-	return RunFinishedMsg{ExitCode: exitCode}
+	return RunFinishedMsg{ExitCode: exitCode, Duration: elapsed}
 }
 
 func buildPlaybookArgs(opts core.RunOptions) []string {

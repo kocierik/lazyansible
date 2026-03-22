@@ -49,6 +49,11 @@ Running Ansible from the CLI is powerful but low-visibility: you get a wall of t
 | Log search — `/` to filter, `n`/`N` to jump between highlighted matches | ✅ v0.6 |
 | Run profiles — save/load named run configurations (`F`) | ✅ v0.6 |
 | Ansible Galaxy browser — list & install roles/collections (`A`) | ✅ v0.6 |
+| Inventory live reload without restarting (`I`) | ✅ v0.7 |
+| Playbook YAML viewer with syntax highlighting (`space` on playbook) | ✅ v0.7 |
+| Log level filter — cycle all/failed/changed/ok (`f` in logs) | ✅ v0.7 |
+| Desktop notifications on run finish (via `notify-send` / `osascript`) | ✅ v0.7 |
+| Config file `~/.lazyansible/config.yml` for persistent defaults | ✅ v0.7 |
 
 ---
 
@@ -83,7 +88,37 @@ lazyansible -d ./playbooks
 
 # Both
 lazyansible -i inventories/staging.yaml -d playbooks/
+
+# Disable mouse (allows native terminal text selection)
+lazyansible --no-mouse
+
+# Create a config file with documented defaults
+lazyansible --init-config
 ```
+
+### Config file
+
+Run `lazyansible --init-config` to create `~/.lazyansible/config.yml`:
+
+```yaml
+# Default inventory file (same as -i flag).
+# inventory: ./inventories/hosts.yml
+
+# Default playbook search directory (same as -d flag).
+# playbook_dir: ./playbooks
+
+# Disable mouse capture so you can select text normally.
+# no_mouse: false
+
+# Send a desktop notification when a run completes.
+notify_on_finish: true
+
+# Start with --check / --diff pre-enabled.
+# default_check_mode: false
+# default_diff_mode: false
+```
+
+CLI flags always take precedence over config file values.
 
 ---
 
@@ -121,6 +156,13 @@ lazyansible -i inventories/staging.yaml -d playbooks/
 | `n` / `N` | Logs (focused) | Jump to next / previous search match |
 | `A` | Global | Ansible Galaxy browser (list & install roles/collections) |
 | `F` | Global | Run profiles — save current config or load a saved one |
+| `I` | Global | Live reload inventory + playbooks |
+| `space` | Playbooks | View playbook YAML source with syntax highlighting |
+| `E` | Playbooks | Open selected playbook directly in `$EDITOR` |
+| `E` | Inventory | Open (or create) `host_vars`/`group_vars` file for selected host/group in `$EDITOR` |
+| `e` | Vars overlay | Open (or create) vars file for the current host/group in `$EDITOR` |
+| `e` | Playbook viewer | Edit the viewed playbook in `$EDITOR`; reloads on return |
+| `f` | Logs (focused) | Cycle log level filter (all → failed → changed → ok → warning) |
 | click | Global | Mouse click focuses the panel under the cursor |
 | `?` | Global | Toggle help overlay |
 | `q` / `ctrl+c` | Global | Quit (cancels active run) |
@@ -153,6 +195,7 @@ internal/
     export.go             # Markdown run-report exporter
     galaxy_overlay.go     # Ansible Galaxy browser (list/install roles & collections)
     runprofiles_overlay.go # Run profiles — save/load named configurations
+    playbookviewer_overlay.go # YAML source viewer with syntax highlighting
 internal/
   history/
     history.go            # JSON run records in ~/.lazyansible/history/
@@ -166,6 +209,10 @@ internal/
     galaxy.go             # ansible-galaxy CLI wrapper (list/install roles & collections)
   runprofiles/
     profiles.go           # Named run configurations stored in ~/.lazyansible/run-profiles.json
+  notify/
+    notify.go             # Desktop notification helper (notify-send / osascript)
+  config/
+    config.go             # User config loader (~/.lazyansible/config.yml)
     panels/
       inventory.go        # Inventory tree panel
       playbooks.go        # Playbook list panel (badges, inline tags)
@@ -226,23 +273,30 @@ ansible/                  # Sample Ansible project for testing
 - [x] **Export as Markdown** (`X`) — saves `lazyansible-run-TIMESTAMP.md` in the working directory with run metadata, host status table, and full log output
 - [x] **Mouse support** — click to focus any panel (inventory, playbooks, status, logs)
 
-### v0.6 ✅ (current)
+### v0.6 ✅
 - [x] **Log search** (`/`) — opens an interactive search bar in the logs panel; matching lines are highlighted (current match in purple, others in dark indigo); press `n`/`N` to jump between matches, `Esc` to close
 - [x] **Run profiles** (`F`) — save the current run configuration (playbook, limit, tags, extra-vars, --check/--diff, inventory) as a named profile stored in `~/.lazyansible/run-profiles.json`; load it back with a single keystroke
 - [x] **Ansible Galaxy browser** (`A`) — two-tab overlay listing all installed roles and collections; press `i` to install a new one via `ansible-galaxy role/collection install`; list auto-refreshes after each install
 
-### v0.7 (planned)
-- [ ] Integration with AWX / Ansible Tower API
-- [ ] Plugin system for custom panels
+### v0.7 ✅ (current)
+- [x] **Inventory live reload** (`I`) — reloads inventory file and rediscovers playbooks on the fly, no restart needed
+- [x] **Playbook YAML viewer** (`space` on selected playbook) — scrollable overlay showing the raw YAML with syntax highlighting (keywords, Jinja2 templates, booleans, comments in distinct colours)
+- [x] **Log level filter** (`f` in logs panel) — cycles through all → failed → changed → ok → warning; match count shown in title bar
+- [x] **Desktop notifications** — sends a `notify-send` (Linux) or `osascript` (macOS) notification when a run completes; configurable via config file
+- [x] **Config file** (`~/.lazyansible/config.yml`) — persistent defaults for inventory, playbook dir, mouse mode, notifications, check/diff mode; `--init-config` flag writes an annotated example
+- [x] **Inline editor** (`E` on playbook / `E` on host-group / `e` in vars overlay / `e` in playbook viewer) — opens `$VISUAL` / `$EDITOR` / `nano` / `vi`; creates `host_vars` or `group_vars` files automatically if they don't exist; playbook viewer reloads file after editor exits
+
+### v0.8 (planned)
+- [ ] Inventory graph view (group hierarchy visualisation)
 - [ ] Multi-pane diff viewer (side-by-side before/after)
 - [ ] Export run summary as HTML
+- [ ] Integration with AWX / Ansible Tower API
 
 ### Backlog / ideas
-- [ ] Integration with AWX / Ansible Tower API
 - [ ] Plugin system for custom panels
-- [ ] Multi-pane diff viewer (side-by-side before/after)
-- [ ] Export run summary as HTML
 - [ ] Inventory graph view (group hierarchy visualisation)
+- [ ] Export run summary as HTML
+- [ ] AWX / Ansible Tower API integration
 
 ---
 

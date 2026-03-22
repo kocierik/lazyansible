@@ -12,6 +12,48 @@ import (
 
 const maxLogLines = 10000
 
+// LogFilter restricts which log levels are visible.
+type LogFilter int
+
+const (
+	LogFilterAll     LogFilter = iota // show everything
+	LogFilterFailed                   // only failed/fatal
+	LogFilterChanged                  // only changed
+	LogFilterOK                       // only ok
+	LogFilterWarning                  // only warnings
+	logFilterCount
+)
+
+func (f LogFilter) Label() string {
+	switch f {
+	case LogFilterFailed:
+		return "failed"
+	case LogFilterChanged:
+		return "changed"
+	case LogFilterOK:
+		return "ok"
+	case LogFilterWarning:
+		return "warning"
+	default:
+		return "all"
+	}
+}
+
+func (f LogFilter) Matches(level core.LogLevel) bool {
+	switch f {
+	case LogFilterFailed:
+		return level == core.LogLevelFailed
+	case LogFilterChanged:
+		return level == core.LogLevelChanged
+	case LogFilterOK:
+		return level == core.LogLevelOK
+	case LogFilterWarning:
+		return level == core.LogLevelWarning
+	default:
+		return true
+	}
+}
+
 // LogsPanel displays streamed ansible-playbook output.
 type LogsPanel struct {
 	lines      []core.LogLine
@@ -20,7 +62,8 @@ type LogsPanel struct {
 	width      int
 	height     int
 	autoScroll bool
-	showTime   bool // toggle with T
+	showTime   bool      // toggle with T
+	filter     LogFilter // f cycles through filters
 
 	// Search state (/ to open, Esc to close)
 	searchActive  bool
@@ -63,14 +106,29 @@ func (p *LogsPanel) SearchActive() bool { return p.searchActive }
 // SearchQuery returns the current search string.
 func (p *LogsPanel) SearchQuery() string { return p.searchQuery }
 
-// rebuildMatches recomputes searchMatches for the current query.
+// filteredLines returns only the lines that pass the current level filter.
+// Returns the slice directly (no copy) when filter is All.
+func (p *LogsPanel) filteredLines() []core.LogLine {
+	if p.filter == LogFilterAll {
+		return p.lines
+	}
+	out := make([]core.LogLine, 0, len(p.lines)/4)
+	for _, l := range p.lines {
+		if p.filter.Matches(l.Level) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// rebuildMatches recomputes searchMatches for the current query against filtered lines.
 func (p *LogsPanel) rebuildMatches() {
 	p.searchMatches = p.searchMatches[:0]
 	if p.searchQuery == "" {
 		return
 	}
 	q := strings.ToLower(p.searchQuery)
-	for i, l := range p.lines {
+	for i, l := range p.filteredLines() {
 		if strings.Contains(strings.ToLower(l.Text), q) {
 			p.searchMatches = append(p.searchMatches, i)
 		}
@@ -84,7 +142,7 @@ func (p *LogsPanel) jumpToMatch() {
 	}
 	idx := p.searchMatches[p.matchCursor]
 	contentH := p.visibleLines()
-	total := len(p.lines)
+	total := len(p.filteredLines())
 	// offset is "lines from bottom". idx 0 = first line, idx total-1 = last.
 	// We want idx to be the last visible line → offset = total-1-idx
 	want := total - 1 - idx
@@ -163,18 +221,16 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	contentH := p.visibleLines()
+	filtered := p.filteredLines()
 	switch key.String() {
 	case "/":
 		p.searchActive = true
-		// Re-open search: move cursor to end if a query already exists.
 	case "esc":
-		// When bar is already closed, Esc clears the query and highlights.
 		if p.searchQuery != "" {
 			p.searchQuery = ""
 			p.searchMatches = nil
 		}
 	case "n":
-		// Next match (towards newer / bottom)
 		if len(p.searchMatches) > 0 {
 			if p.matchCursor > 0 {
 				p.matchCursor--
@@ -184,7 +240,6 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 			p.jumpToMatch()
 		}
 	case "N":
-		// Previous match (towards older / top)
 		if len(p.searchMatches) > 0 {
 			if p.matchCursor < len(p.searchMatches)-1 {
 				p.matchCursor++
@@ -199,7 +254,7 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 			p.autoScroll = (p.offset == 0)
 		}
 	case "k", "up":
-		maxOff := len(p.lines) - contentH
+		maxOff := len(filtered) - contentH
 		if maxOff < 0 {
 			maxOff = 0
 		}
@@ -211,7 +266,7 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 		p.offset = 0
 		p.autoScroll = true
 	case "g", "home":
-		maxOff := len(p.lines) - contentH
+		maxOff := len(filtered) - contentH
 		if maxOff < 0 {
 			maxOff = 0
 		}
@@ -224,7 +279,7 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 			p.autoScroll = true
 		}
 	case "ctrl+u":
-		maxOff := len(p.lines) - contentH
+		maxOff := len(filtered) - contentH
 		if maxOff < 0 {
 			maxOff = 0
 		}
@@ -235,19 +290,30 @@ func (p *LogsPanel) Update(msg tea.Msg) tea.Cmd {
 		p.autoScroll = false
 	case "T":
 		p.showTime = !p.showTime
+	case "f":
+		p.filter = (p.filter + 1) % logFilterCount
+		p.offset = 0
+		p.autoScroll = true
+		p.searchMatches = nil
 	}
 	return nil
 }
 
 func (p *LogsPanel) View() string {
 	contentH := p.visibleLines()
-	total := len(p.lines)
+	visible := p.filteredLines()
+	total := len(visible)
+	allTotal := len(p.lines)
 
 	// ── Title bar — doubles as the search input when active ───────────────
-	title := p.renderTitle(total, contentH)
+	title := p.renderTitle(total, allTotal, contentH)
 
-	if total == 0 {
+	if allTotal == 0 {
 		empty := mutedText("No output yet.  Select a playbook → [r] to run,  or [!] for ad-hoc.")
+		return title + "\n" + empty
+	}
+	if total == 0 {
+		empty := mutedText(fmt.Sprintf("No %s lines.  Press [f] to change filter.", p.filter.Label()))
 		return title + "\n" + empty
 	}
 
@@ -261,7 +327,7 @@ func (p *LogsPanel) View() string {
 		currentMatchIdx = p.searchMatches[p.matchCursor]
 	}
 
-	// ── Visible window into lines ─────────────────────────────────────────
+	// ── Visible window into filtered lines ────────────────────────────────
 	end := total - p.offset
 	if end < 0 {
 		end = 0
@@ -276,12 +342,11 @@ func (p *LogsPanel) View() string {
 
 	written := 0
 	for i := start; i < end && written < contentH; i++ {
-		line := p.lines[i]
+		line := visible[i]
 		line.Text = strings.ReplaceAll(line.Text, "\r", "")
 		rendered := renderLogLine(line, p.width, p.showTime)
 		rendered = strings.SplitN(rendered, "\n", 2)[0]
 
-		// Highlight matching lines: current match in bright purple, others in dark bg.
 		if p.searchQuery != "" && matchSet[i] {
 			if i == currentMatchIdx {
 				rendered = lipgloss.NewStyle().
@@ -304,12 +369,19 @@ func (p *LogsPanel) View() string {
 	return sb.String()
 }
 
-func (p *LogsPanel) renderTitle(total, contentH int) string {
+func (p *LogsPanel) renderTitle(filteredTotal, allTotal, contentH int) string {
+	total := filteredTotal
 	// ── Right side: scroll position + flags ──────────────────────────────
 	var right string
-	if total > 0 {
+	if allTotal > 0 {
 		pos := total - p.offset
-		pct := pos * 100 / total
+		if pos < 0 {
+			pos = 0
+		}
+		pct := 0
+		if total > 0 {
+			pct = pos * 100 / total
+		}
 		scrollIcon := "↓"
 		if !p.autoScroll {
 			scrollIcon = "↑"
@@ -318,6 +390,18 @@ func (p *LogsPanel) renderTitle(total, contentH int) string {
 			Render(fmt.Sprintf("%s %d/%d (%d%%)", scrollIcon, pos, total, pct))
 		if p.showTime {
 			right += lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Render(" [T]")
+		}
+		// Filter badge.
+		if p.filter != LogFilterAll {
+			filterColors := map[LogFilter]lipgloss.Color{
+				LogFilterFailed:  "#EF4444",
+				LogFilterChanged: "#F59E0B",
+				LogFilterOK:      "#22C55E",
+				LogFilterWarning: "#F97316",
+			}
+			col := filterColors[p.filter]
+			right += lipgloss.NewStyle().Foreground(col).Bold(true).
+				Render(fmt.Sprintf(" [f:%s %d/%d]", p.filter.Label(), filteredTotal, allTotal))
 		}
 	}
 

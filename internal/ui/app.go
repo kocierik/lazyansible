@@ -13,16 +13,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kocierik/lazyansible/internal/core"
+	"github.com/kocierik/lazyansible/internal/editor"
 	"github.com/kocierik/lazyansible/internal/galaxy"
 	"github.com/kocierik/lazyansible/internal/history"
 	"github.com/kocierik/lazyansible/internal/inventory"
+	"github.com/kocierik/lazyansible/internal/notify"
 	"github.com/kocierik/lazyansible/internal/runprofiles"
 	"github.com/kocierik/lazyansible/internal/runner"
 	"github.com/kocierik/lazyansible/internal/ui/panels"
 	"github.com/kocierik/lazyansible/internal/vault"
 )
 
-const version = "0.6.0"
+const version = "0.7.0"
 
 // AppMode tracks which overlay (if any) is currently shown.
 type AppMode int
@@ -41,6 +43,7 @@ const (
 	AppModeHelp
 	AppModeGalaxy
 	AppModeRunProfiles
+	AppModePlaybookViewer
 )
 
 // Config holds the launch-time configuration.
@@ -88,6 +91,9 @@ type App struct {
 	galaxyOverlay      *GalaxyOverlay
 	runProfilesOverlay *RunProfilesOverlay
 
+	// v0.7 overlays.
+	pbViewerOverlay *PlaybookViewerOverlay
+
 	// Run state.
 	inventory    *core.Inventory
 	playbooks    []*core.Playbook
@@ -112,6 +118,9 @@ type App struct {
 
 	// v0.6 state (nothing extra — overlays are self-contained)
 
+	// v0.7 state.
+	notifyOnFinish bool // send desktop notification when run completes
+
 	err error
 }
 
@@ -130,6 +139,7 @@ func New(cfg Config) *App {
 	a.logsPanel = panels.NewLogsPanel(0, 0)
 
 	a.varsOverlay = newVarsOverlay(0, 0)
+	a.varsOverlay.SetWorkDir(inventoryBaseDir(cfg))
 	a.adhocOverlay = newAdHocOverlay(0, 0)
 	a.extraVarsOverlay = newExtraVarsOverlay(0, 0)
 	a.tagsOverlay = newTagsOverlay(0, 0)
@@ -140,12 +150,16 @@ func New(cfg Config) *App {
 	a.sshProfileOverlay = newSSHProfileOverlay(0, 0)
 	a.galaxyOverlay = newGalaxyOverlay(0, 0)
 	a.runProfilesOverlay = newRunProfilesOverlay(0, 0)
+	a.pbViewerOverlay = newPlaybookViewerOverlay(0, 0)
 
 	a.updateFocus()
 	return a
 }
 
 func (a *App) SetProgram(p *tea.Program) { a.program = p }
+
+// SetNotifyOnFinish enables desktop notifications at run completion.
+func (a *App) SetNotifyOnFinish(v bool) { a.notifyOnFinish = v }
 
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(
@@ -178,6 +192,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if mouse, ok := msg.(tea.MouseMsg); ok && mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
 		a.handleMouseClick(mouse.X, mouse.Y)
 		return a, nil
+	}
+
+	// Editor done: reload content and show status.
+	if ed, ok := msg.(editor.DoneMsg); ok {
+		if ed.Err != nil {
+			a.statusMsg = "Editor error: " + ed.Err.Error()
+		} else {
+			// Reload the viewer if it's open and still shows the same file.
+			a.pbViewerOverlay.Reload()
+			a.statusMsg = fmt.Sprintf("Saved: %s", ed.Path)
+		}
+		return a, nil
+	}
+
+	// Two-step open: resolved path → launch editor.
+	if ep, ok := msg.(editorOpenPathMsg); ok {
+		return a, editor.Open(ep.path)
 	}
 
 	if a.mode != AppModeNormal {
@@ -453,6 +484,39 @@ func (a *App) updateNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return exportDoneMsg{path: path, err: err}
 		}
 
+	// ── v0.7 features ─────────────────────────────────────────────────────
+
+	case "I":
+		// Live reload inventory + playbooks without restarting.
+		a.statusMsg = "Reloading inventory and playbooks…"
+		return a, tea.Batch(loadInventoryCmd(a.config), loadPlaybooksCmd(a.config))
+
+	case " ":
+		// Playbook viewer: show YAML source of selected playbook.
+		if a.focused == core.PanelPlaybooks {
+			if pb := a.pbPanel.SelectedPlaybook(); pb != nil {
+				a.pbViewerOverlay.Load(pb.Name, pb.Path)
+				a.mode = AppModePlaybookViewer
+				return a, nil
+			}
+		}
+
+	case "E":
+		// Open selected playbook directly in $EDITOR (skip viewer overlay).
+		if a.focused == core.PanelPlaybooks {
+			if pb := a.pbPanel.SelectedPlaybook(); pb != nil {
+				return a, editor.Open(pb.Path)
+			}
+		}
+		// Also allow editing from inventory: open host_vars / group_vars file.
+		if a.focused == core.PanelInventory {
+			if host := a.invPanel.SelectedHost(); host != "" {
+				return a, editorOpenVarsFile(inventoryBaseDir(a.config), "host_vars", host)
+			} else if group := a.invPanel.SelectedGroup(); group != "" {
+				return a, editorOpenVarsFile(inventoryBaseDir(a.config), "group_vars", group)
+			}
+		}
+
 	// ── v0.6 overlays ─────────────────────────────────────────────────────
 
 	case "A":
@@ -632,6 +696,15 @@ func (a *App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 		}
+
+	case AppModePlaybookViewer:
+		cmd = a.pbViewerOverlay.Update(msg)
+		if cmd != nil {
+			if _, ok := evalCmd(cmd).(pbViewerCloseMsg); ok {
+				a.mode = AppModeNormal
+				return a, nil
+			}
+		}
 	}
 
 	return a, cmd
@@ -692,6 +765,8 @@ func (a *App) View() string {
 		return a.renderOverlay(a.galaxyOverlay.View())
 	case AppModeRunProfiles:
 		return a.renderOverlay(a.runProfilesOverlay.View())
+	case AppModePlaybookViewer:
+		return a.renderOverlay(a.pbViewerOverlay.View())
 	}
 
 	return a.baseView()
@@ -972,6 +1047,7 @@ func (a *App) helpContent() string {
 		row("enter / space", "expand / collapse group"),
 		row("enter on host", "set as run limit"),
 		row("v", "variable browser"),
+		row("E", "open host/group vars file in $EDITOR"),
 		row("!", "ad-hoc command runner"),
 		blank,
 		sectionStyle.Render("Playbooks panel"),
@@ -982,9 +1058,14 @@ func (a *App) helpContent() string {
 		row("e", "--extra-vars"),
 		row("L", "ansible-lint"),
 		blank,
+		sectionStyle.Render("Playbooks panel — v0.7"),
+		row("space", "view playbook YAML source"),
+		row("E", "open playbook in $EDITOR"),
+		blank,
 		sectionStyle.Render("Logs panel (focused)"),
 		row("/", "open search bar"),
 		row("n / N", "next / prev match"),
+		row("f", "cycle level filter (all/failed/changed/ok)"),
 		row("j / k", "scroll down / up"),
 		row("ctrl+d / ctrl+u", "half-page scroll"),
 		row("G / g", "bottom / top"),
@@ -1005,9 +1086,12 @@ func (a *App) helpContent() string {
 		row("N", "switch inventory"),
 		row("P", "SSH profile manager"),
 		blank,
-		sectionStyle.Render("v0.6 — new"),
+		sectionStyle.Render("v0.6 features"),
 		row("A", "Ansible Galaxy browser"),
 		row("F", "run profiles (save/load)"),
+		blank,
+		sectionStyle.Render("v0.7 features"),
+		row("I", "live reload inventory + playbooks"),
 		blank,
 		sectionStyle.Render("Global"),
 		row("?", "toggle this help"),
@@ -1040,6 +1124,31 @@ func (a *App) helpContent() string {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// inventoryBaseDir returns the directory containing the inventory file,
+// or the working directory if no inventory is configured.
+func inventoryBaseDir(cfg Config) string {
+	if cfg.InventoryPath != "" {
+		return filepath.Dir(cfg.InventoryPath)
+	}
+	return cfg.WorkDir
+}
+
+// editorOpenVarsFile finds or creates a vars file then opens it in $EDITOR.
+func editorOpenVarsFile(baseDir, subdir, entityName string) tea.Cmd {
+	return func() tea.Msg {
+		path, err := editor.FindOrCreate(baseDir, subdir, entityName)
+		if err != nil {
+			return editor.DoneMsg{Err: err}
+		}
+		// We must run tea.ExecProcess synchronously via a Cmd.
+		// Return an openEditorCmd so app can dispatch it as a tea.Cmd.
+		return editorOpenPathMsg{path: path}
+	}
+}
+
+// editorOpenPathMsg carries a path that should be opened in the editor.
+type editorOpenPathMsg struct{ path string }
 
 // handleMouseClick focuses the panel that contains the clicked cell.
 func (a *App) handleMouseClick(x, y int) {
@@ -1144,6 +1253,8 @@ func (a *App) resizePanels() {
 	a.galaxyOverlay.height = a.height
 	a.runProfilesOverlay.width = a.width
 	a.runProfilesOverlay.height = a.height
+	a.pbViewerOverlay.width = a.width
+	a.pbViewerOverlay.height = a.height
 }
 
 // ─── Run lifecycle ────────────────────────────────────────────────────────────
@@ -1360,6 +1471,25 @@ func (a *App) handleRunFinished(msg runner.RunFinishedMsg) tea.Cmd {
 		a.statusMsg = fmt.Sprintf("Exit code %d%s", msg.ExitCode, failStr)
 	}
 
+	// Desktop notification.
+	if a.notifyOnFinish {
+		pbName := a.pbPanel.SelectedPlaybook()
+		name := "playbook"
+		if pbName != nil {
+			name = pbName.Name
+		}
+		dur := ""
+		if msg.Duration > 0 {
+			dur = msg.Duration.Round(time.Second).String()
+		}
+		exitCode := msg.ExitCode
+		go notify.Send(notify.RunResult{
+			PlaybookName: name,
+			ExitCode:     exitCode,
+			Duration:     dur,
+		})
+	}
+
 	return nil
 }
 
@@ -1423,6 +1553,7 @@ func (a *App) startRoleRun(req RoleRunMsg) tea.Cmd {
 // switchInventory reloads the inventory from a new path.
 func (a *App) switchInventory(path string) tea.Cmd {
 	a.config.InventoryPath = path
+	a.varsOverlay.SetWorkDir(inventoryBaseDir(a.config))
 	a.statusMsg = "Switching to " + filepath.Base(path) + "…"
 	return func() tea.Msg {
 		inv, err := inventory.Parse(path)

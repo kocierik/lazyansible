@@ -9,25 +9,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kocierik/lazyansible/internal/core"
+	"github.com/kocierik/lazyansible/internal/editor"
 )
 
 // VarsOverlay shows the variables for a host or group in a centered modal.
 type VarsOverlay struct {
-	title  string
-	keys   []string
-	vars   map[string]string
-	cursor int
-	width  int
-	height int
+	title      string
+	keys       []string
+	vars       map[string]string
+	cursor     int
+	width      int
+	height     int
+	// editor support
+	workDir    string // inventory parent directory
+	entityName string // host or group name
+	entityType string // "host" or "group"
+	editErr    string // transient error message from editor launch
 }
 
 func newVarsOverlay(width, height int) *VarsOverlay {
 	return &VarsOverlay{width: width, height: height}
 }
 
+// SetWorkDir records the base directory used to locate host_vars / group_vars.
+func (v *VarsOverlay) SetWorkDir(dir string) { v.workDir = dir }
+
 func (v *VarsOverlay) SetHost(host *core.Host) {
 	v.title = "Variables – " + host.Name
 	v.vars = host.Vars
+	v.entityName = host.Name
+	v.entityType = "host"
+	v.editErr = ""
 	v.buildKeys()
 	v.cursor = 0
 }
@@ -35,6 +47,9 @@ func (v *VarsOverlay) SetHost(host *core.Host) {
 func (v *VarsOverlay) SetGroup(group *core.Group) {
 	v.title = "Variables – [" + group.Name + "]"
 	v.vars = group.Vars
+	v.entityName = group.Name
+	v.entityType = "group"
+	v.editErr = ""
 	v.buildKeys()
 	v.cursor = 0
 }
@@ -64,9 +79,30 @@ func (v *VarsOverlay) Update(msg tea.Msg) tea.Cmd {
 			if len(v.keys) > 0 {
 				v.cursor = len(v.keys) - 1
 			}
+		case "e":
+			return v.openEditor()
 		}
 	}
 	return nil
+}
+
+// openEditor finds (or creates) the vars file and opens it in $EDITOR.
+func (v *VarsOverlay) openEditor() tea.Cmd {
+	if v.workDir == "" || v.entityName == "" {
+		v.editErr = "workDir not set — cannot locate vars file"
+		return nil
+	}
+	subdir := "host_vars"
+	if v.entityType == "group" {
+		subdir = "group_vars"
+	}
+	path, err := editor.FindOrCreate(v.workDir, subdir, v.entityName)
+	if err != nil {
+		v.editErr = err.Error()
+		return nil
+	}
+	v.editErr = ""
+	return editor.Open(path)
 }
 
 func (v *VarsOverlay) View() string {
@@ -119,7 +155,16 @@ func (v *VarsOverlay) View() string {
 		}
 	}
 
-	sb.WriteString("\n" + overlayHintStyle.Render("  [esc] close   [j/k] scroll   [g/G] top/bottom"))
+	editHint := "  [e] edit vars file"
+	if v.workDir == "" {
+		editHint = ""
+	}
+	errLine := ""
+	if v.editErr != "" {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render("  ✗ "+v.editErr)
+	}
+	sb.WriteString(errLine)
+	sb.WriteString("\n" + overlayHintStyle.Render("  [esc] close   [j/k] scroll   [g/G] top/bottom"+editHint))
 
 	return overlayBoxStyle.
 		Width(boxW).
