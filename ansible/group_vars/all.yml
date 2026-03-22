@@ -1,8 +1,0 @@
----
-# Variables applied to every host
-timezone: Europe/Rome
-ops_user: ops
-ansible_python_interpreter: /usr/bin/python3
-
-ssh_authorized_keys:
-  - "ssh-ed25519 AAAA... ops@workstation"

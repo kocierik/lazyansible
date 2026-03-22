@@ -1,6 +1,0 @@
----
-pg_version: "15"
-db_name: appdb
-db_user: appuser
-# db_password: should be stored in vault
-pg_listen_addresses: "0.0.0.0"

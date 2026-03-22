@@ -1,4 +1,0 @@
----
-# Host-specific overrides for web1
-http_port: 8080      # non-standard port on this node
-server_name: web1.example.com
