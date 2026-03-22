@@ -3,6 +3,9 @@
 dist/
 bin/
 
+# Local release notes (personal checklist, not for the repo)
+RELEASE.md
+
 # Local Ansible test environment (not part of the distributed project)
 ansible/
 
