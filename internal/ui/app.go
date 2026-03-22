@@ -18,8 +18,8 @@ import (
 	"github.com/kocierik/lazyansible/internal/history"
 	"github.com/kocierik/lazyansible/internal/inventory"
 	"github.com/kocierik/lazyansible/internal/notify"
-	"github.com/kocierik/lazyansible/internal/runprofiles"
 	"github.com/kocierik/lazyansible/internal/runner"
+	"github.com/kocierik/lazyansible/internal/runprofiles"
 	"github.com/kocierik/lazyansible/internal/ui/panels"
 	"github.com/kocierik/lazyansible/internal/vault"
 )
@@ -172,7 +172,10 @@ type inventoryLoadedMsg struct{ inv *core.Inventory }
 type playbooksLoadedMsg struct{ pbs []*core.Playbook }
 type vaultScanDoneMsg struct{ hasVault bool }
 type lintFinishedMsg struct{ exitCode int }
-type exportDoneMsg struct{ path string; err error }
+type exportDoneMsg struct {
+	path string
+	err  error
+}
 type errMsg struct{ err error }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -1076,7 +1079,7 @@ func (a *App) renderHeader() string {
 	for _, t := range tabs {
 		numPart := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#475569")).
-			Render(t.num+" ")
+			Render(t.num + " ")
 		if t.panel == a.focused {
 			// Active tab: bright, underlined appearance
 			active := lipgloss.NewStyle().

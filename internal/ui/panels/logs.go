@@ -731,10 +731,10 @@ var (
 			Bold(true) // cyan
 
 	diffHeaderStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#E5E7EB")).
-		Bold(true) // bold white
+			Foreground(lipgloss.Color("#E5E7EB")).
+			Bold(true) // bold white
 
 	commandStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7C3AED")).
-		Bold(true) // purple — command echo at run start
+			Foreground(lipgloss.Color("#7C3AED")).
+			Bold(true) // purple — command echo at run start
 )

@@ -47,13 +47,13 @@ type Playbook struct {
 
 // RunOptions holds the parameters for a playbook run.
 type RunOptions struct {
-	Playbook     string
-	Inventory    string
-	Limit        string
-	Tags         string
-	CheckMode    bool
-	DiffMode     bool
-	ExtraVars    map[string]string
+	Playbook  string
+	Inventory string
+	Limit     string
+	Tags      string
+	CheckMode bool
+	DiffMode  bool
+	ExtraVars map[string]string
 	// ExtraVarsRaw is passed verbatim as -e "..." (space-separated key=val pairs).
 	ExtraVarsRaw string
 	// VaultPasswordFile is passed as --vault-password-file if non-empty.
@@ -103,10 +103,10 @@ func (s TaskStatus) String() string {
 
 // HostResult tracks per-host execution status.
 type HostResult struct {
-	Host       string
-	Status     TaskStatus
-	TaskName   string
-	ChangedAt  time.Time
+	Host      string
+	Status    TaskStatus
+	TaskName  string
+	ChangedAt time.Time
 }
 
 // RunResult summarises a completed playbook run.

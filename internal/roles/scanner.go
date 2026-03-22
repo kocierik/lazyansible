@@ -14,7 +14,7 @@ import (
 // Task is a single task parsed from a role's tasks file.
 type Task struct {
 	Name   string
-	Module string   // best-guess module name
+	Module string // best-guess module name
 	Tags   []string
 }
 
@@ -22,7 +22,7 @@ type Task struct {
 type Role struct {
 	Name     string
 	Path     string
-	Desc     string            // from meta/main.yml galaxy_info.description
+	Desc     string // from meta/main.yml galaxy_info.description
 	Tasks    []Task
 	Defaults map[string]string // from defaults/main.yml
 	Handlers []string          // handler names from handlers/main.yml

@@ -175,7 +175,7 @@ func (o *RunProfilesOverlay) viewList(boxW, boxH int) string {
 	sb.WriteString(overlayTitleStyle.Render("Run Profiles") + "\n\n")
 
 	if o.err != "" {
-		sb.WriteString(overlayMutedStyle.Render("Error: " + o.err) + "\n\n")
+		sb.WriteString(overlayMutedStyle.Render("Error: "+o.err) + "\n\n")
 	}
 
 	if len(o.profiles) == 0 {

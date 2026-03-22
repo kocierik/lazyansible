@@ -22,8 +22,8 @@ type Record struct {
 	ExtraVars    string            `json:"extra_vars,omitempty"`
 	CheckMode    bool              `json:"check_mode,omitempty"`
 	DiffMode     bool              `json:"diff_mode,omitempty"`
-	Module       string            `json:"module,omitempty"`   // ad-hoc
-	Args         string            `json:"args,omitempty"`      // ad-hoc
+	Module       string            `json:"module,omitempty"` // ad-hoc
+	Args         string            `json:"args,omitempty"`   // ad-hoc
 	StartTime    time.Time         `json:"start_time"`
 	EndTime      time.Time         `json:"end_time"`
 	ExitCode     int               `json:"exit_code"`

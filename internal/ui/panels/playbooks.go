@@ -130,7 +130,6 @@ func (p *PlaybooksPanel) View() string {
 
 	var sb strings.Builder
 
-
 	// ── Active option badges ───────────────────────────────────────────────
 	var badges []string
 	if p.checkMode {
@@ -285,15 +284,15 @@ var (
 			Padding(0, 1)
 
 	extraVarsStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#A78BFA")).
-		Background(lipgloss.Color("#1F2937")).
-		Padding(0, 1)
+			Foreground(lipgloss.Color("#A78BFA")).
+			Background(lipgloss.Color("#1F2937")).
+			Padding(0, 1)
 
 	pbHostsStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#22C55E")).
-		Italic(true)
+			Foreground(lipgloss.Color("#22C55E")).
+			Italic(true)
 
 	pbPathStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#374151")).
-		Italic(true)
+			Foreground(lipgloss.Color("#374151")).
+			Italic(true)
 )

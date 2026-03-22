@@ -10,16 +10,16 @@ import (
 
 // Profile stores a complete run configuration that can be recalled quickly.
 type Profile struct {
-	Name       string    `json:"name"`
-	Playbook   string    `json:"playbook"`    // path or name
-	Limit      string    `json:"limit"`       // --limit value
-	Tags       []string  `json:"tags"`        // selected tags
-	ExtraVars  string    `json:"extra_vars"`  // --extra-vars string
-	CheckMode  bool      `json:"check_mode"`  // --check
-	DiffMode   bool      `json:"diff_mode"`   // --diff
-	Inventory  string    `json:"inventory"`   // inventory path override
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Name      string    `json:"name"`
+	Playbook  string    `json:"playbook"`   // path or name
+	Limit     string    `json:"limit"`      // --limit value
+	Tags      []string  `json:"tags"`       // selected tags
+	ExtraVars string    `json:"extra_vars"` // --extra-vars string
+	CheckMode bool      `json:"check_mode"` // --check
+	DiffMode  bool      `json:"diff_mode"`  // --diff
+	Inventory string    `json:"inventory"`  // inventory path override
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func storePath() string {
