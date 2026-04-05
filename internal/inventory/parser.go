@@ -3,6 +3,7 @@ package inventory
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 // inventoryCandidates is the ordered list of file names checked during auto-discovery.
 var inventoryCandidates = []string{
 	"inventory.yml", "inventory.yaml",
+	"inventory.json", "hosts.json",
 	"hosts.yml", "hosts.yaml", "hosts",
 	"inventory", "inventory.ini",
 }
@@ -70,6 +72,8 @@ func Parse(path string) (*core.Inventory, error) {
 	switch ext {
 	case ".yaml", ".yml":
 		inv, err = parseYAML(path)
+	case ".json":
+		inv, err = parseJSON(path)
 	default:
 		inv, err = parseINI(path)
 	}
@@ -350,19 +354,19 @@ func appendUnique(slice []string, s string) []string {
 
 // ─── YAML parser ─────────────────────────────────────────────────────────────
 
-// yamlInventory matches the standard Ansible YAML inventory schema.
-type yamlInventory struct {
+// docInventory matches Ansible's structured inventory (YAML or JSON).
+type docInventory struct {
 	All struct {
-		Hosts    map[string]map[string]interface{} `yaml:"hosts"`
-		Vars     map[string]interface{}            `yaml:"vars"`
-		Children map[string]yamlGroup              `yaml:"children"`
-	} `yaml:"all"`
+		Hosts    map[string]map[string]interface{} `yaml:"hosts" json:"hosts"`
+		Vars     map[string]interface{}            `yaml:"vars" json:"vars"`
+		Children map[string]docGroup               `yaml:"children" json:"children"`
+	} `yaml:"all" json:"all"`
 }
 
-type yamlGroup struct {
-	Hosts    map[string]map[string]interface{} `yaml:"hosts"`
-	Vars     map[string]interface{}            `yaml:"vars"`
-	Children map[string]yamlGroup              `yaml:"children"`
+type docGroup struct {
+	Hosts    map[string]map[string]interface{} `yaml:"hosts" json:"hosts"`
+	Vars     map[string]interface{}            `yaml:"vars" json:"vars"`
+	Children map[string]docGroup               `yaml:"children" json:"children"`
 }
 
 func parseYAML(path string) (*core.Inventory, error) {
@@ -370,10 +374,35 @@ func parseYAML(path string) (*core.Inventory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read yaml inventory: %w", err)
 	}
-
-	var raw yamlInventory
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	inv, err := parseStructuredInventory(data, false)
+	if err != nil {
 		return nil, fmt.Errorf("parse yaml inventory: %w", err)
+	}
+	return inv, nil
+}
+
+func parseJSON(path string) (*core.Inventory, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read json inventory: %w", err)
+	}
+	inv, err := parseStructuredInventory(data, true)
+	if err != nil {
+		return nil, fmt.Errorf("parse json inventory: %w", err)
+	}
+	return inv, nil
+}
+
+func parseStructuredInventory(data []byte, asJSON bool) (*core.Inventory, error) {
+	var raw docInventory
+	var err error
+	if asJSON {
+		err = json.Unmarshal(data, &raw)
+	} else {
+		err = yaml.Unmarshal(data, &raw)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	inv := &core.Inventory{
@@ -385,26 +414,39 @@ func parseYAML(path string) (*core.Inventory, error) {
 	inv.Groups["all"] = allGroup
 	inv.OrderedGroups = []string{"all"}
 
-	// Add hosts from the top-level "all" group.
-	for hostName, hostVars := range raw.All.Hosts {
-		host := &core.Host{
-			Name:   hostName,
-			Groups: []string{"all"},
-			Vars:   toStringMap(hostVars),
-		}
-		inv.Hosts[hostName] = host
-		allGroup.Hosts = appendUnique(allGroup.Hosts, hostName)
-	}
+	hasAllKey := len(raw.All.Hosts) > 0 || len(raw.All.Children) > 0 || len(raw.All.Vars) > 0
 
-	// Recurse into children.
-	for groupName, groupData := range raw.All.Children {
-		processYAMLGroup(inv, groupName, groupData)
+	if hasAllKey {
+		for hostName, hostVars := range raw.All.Hosts {
+			host := &core.Host{
+				Name:   hostName,
+				Groups: []string{"all"},
+				Vars:   toStringMap(hostVars),
+			}
+			inv.Hosts[hostName] = host
+			allGroup.Hosts = appendUnique(allGroup.Hosts, hostName)
+		}
+		for groupName, groupData := range raw.All.Children {
+			processDocGroup(inv, groupName, groupData)
+		}
+	} else {
+		var flat map[string]docGroup
+		if asJSON {
+			err = json.Unmarshal(data, &flat)
+		} else {
+			err = yaml.Unmarshal(data, &flat)
+		}
+		if err == nil && len(flat) > 0 {
+			for groupName, groupData := range flat {
+				processDocGroup(inv, groupName, groupData)
+			}
+		}
 	}
 
 	return inv, nil
 }
 
-func processYAMLGroup(inv *core.Inventory, name string, data yamlGroup) {
+func processDocGroup(inv *core.Inventory, name string, data docGroup) {
 	g, ok := inv.Groups[name]
 	if !ok {
 		g = &core.Group{Name: name, Vars: make(map[string]string)}
@@ -434,7 +476,7 @@ func processYAMLGroup(inv *core.Inventory, name string, data yamlGroup) {
 
 	for childName, childData := range data.Children {
 		g.Children = appendUnique(g.Children, childName)
-		processYAMLGroup(inv, childName, childData)
+		processDocGroup(inv, childName, childData)
 	}
 }
 

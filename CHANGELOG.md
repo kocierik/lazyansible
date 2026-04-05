@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.3] — 2026-04-05
+
+### Added
+- **JSON static inventory** — same logical structure as YAML (`all` / `hosts` / `children` / `vars`, or flat top-level groups); files `.json` parsed via `encoding/json`
+- **Flat YAML inventory** — top-level group keys without an `all:` wrapper (Ansible-compatible layout)
+- Auto-discovery extended with **`inventory.json`** and **`hosts.json`**
+- **Unit tests** for YAML (standard `all`, flat single group, multiple flat groups) and JSON inventories (`internal/inventory/parser_test.go`)
+- **GitHub Actions** — CI workflow: `go build` on Linux / macOS / Windows, cross-compile matrix, `go vet`, `gofmt`, `golangci-lint`
+- **Release automation** — GoReleaser on `v*` tags: multi-platform archives, checksums, GitHub Release
+- **Package distribution** — Homebrew tap (`homebrew-lazyansible`) and Scoop bucket (`scoop-lazyansible`) via GoReleaser (`GORELEASER_TOKEN` secret + `directory: Formula` for brew)
+- **AUR reference** — `packages/aur/PKGBUILD` for `lazyansible-bin` (maintainer updates checksums after each GitHub release)
+
+### Fixed
+- **golangci-lint** — removed unused types/vars/funcs; `gosimple` (`fmt.Sprintf` without verbs); `ineffassign`; `staticcheck` SA4006
+- **Go version** — `go 1.22` in `go.mod` and CI so `golangci-lint` matches the targeted toolchain
+- **GoReleaser** — Homebrew block uses `directory` (v2 schema; `folder` was invalid)
+
+---
+
 ## [1.0.0] — 2026-03-21
 
 First stable release.
@@ -50,7 +69,3 @@ First stable release.
 - `group_vars` / `host_vars` files created in the correct directory (parent of `inventories/`) when editing
 
 ---
-
-## [Unreleased]
-
-_Nothing yet._

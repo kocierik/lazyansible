@@ -28,7 +28,7 @@ Running Ansible from the CLI is powerful but low-visibility: you get a wall of t
 
 ## Features
 
-- **Inventory Explorer** — browse INI and YAML inventories as a collapsible tree; set host/group limits with a single keypress
+- **Inventory Explorer** — browse INI, YAML, and JSON inventories as a collapsible tree; set host/group limits with a single keypress
 - **Playbook Runner** — discover and run playbooks with `--check`, `--diff`, tags, extra-vars and limit; see the exact command echoed in the log panel
 - **Live Log Streaming** — colorised output with TASK/PLAY section headers, scroll, search, and level filter (failed / changed / ok)
 - **Per-host Status** — real-time ok / changed / failed / unreachable counters for every host
@@ -127,7 +127,7 @@ When no flags are given, lazyansible searches for inventory and playbook files i
 
 | Type | Candidates |
 |---|---|
-| Inventory | `inventory.yml`, `inventory.yaml`, `hosts.yml`, `hosts.yaml`, `hosts`, `inventory`, `inventory.ini` |
+| Inventory | `inventory.yml`, `inventory.yaml`, `inventory.json`, `hosts.yml`, `hosts.yaml`, `hosts.json`, `hosts`, `inventory`, `inventory.ini` |
 | Playbooks | all `.yml` / `.yaml` files in `playbooks/`, `.`, and `..` |
 
 ### Config file
@@ -230,7 +230,7 @@ cmd/lazyansible/          Entry point, CLI flag parsing
 internal/
   core/                   Domain types — Inventory, Host, Group, Playbook, LogLine
   inventory/
-    parser.go             INI + YAML inventory parser; loads group_vars / host_vars
+    parser.go             INI + YAML + JSON inventory parser; loads group_vars / host_vars
     playbooks.go          Playbook discovery and tag extraction
   runner/
     runner.go             ansible-playbook / ansible execution with live streaming
