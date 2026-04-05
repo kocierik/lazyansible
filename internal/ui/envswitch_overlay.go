@@ -164,7 +164,13 @@ func discoverAllInventories(dir string) []string {
 	}
 
 	// Standard names at root.
-	for _, name := range []string{"inventory", "hosts", "inventory.ini", "inventory.yaml", "inventory.yml"} {
+	for _, name := range []string{
+		"inventory", "hosts",
+		"inventory.ini",
+		"inventory.yml", "inventory.yaml",
+		"inventory.json", "hosts.json",
+		"hosts.yml", "hosts.yaml",
+	} {
 		add(filepath.Join(dir, name))
 	}
 

@@ -14,11 +14,13 @@ import (
 )
 
 // inventoryCandidates is the ordered list of file names checked during auto-discovery.
+// Order matters: first match wins. Classic Ansible names without extension first.
 var inventoryCandidates = []string{
+	"inventory", "hosts",
+	"inventory.ini",
 	"inventory.yml", "inventory.yaml",
 	"inventory.json", "hosts.json",
-	"hosts.yml", "hosts.yaml", "hosts",
-	"inventory", "inventory.ini",
+	"hosts.yml", "hosts.yaml",
 }
 
 // Discover finds inventory files by searching dir and its parent directory.

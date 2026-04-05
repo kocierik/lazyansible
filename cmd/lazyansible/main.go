@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Println("lazyansible v0.7.0")
+		fmt.Println("lazyansible v1.0.4")
 		os.Exit(0)
 	}
 

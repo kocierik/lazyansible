@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Auto-discovered inventory path is now stored and passed to Ansible as **`-i`** (runs from the TUI no longer omit the inventory file)
+- Discovery order prefers **`inventory`** and **`hosts`** (no extension) before `*.yml` / `*.yaml`, matching common project layouts
+
+---
+
 ## [1.0.3] — 2026-04-05
 
 ### Added

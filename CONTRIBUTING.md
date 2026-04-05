@@ -24,7 +24,22 @@ go build -o lazyansible ./cmd/lazyansible
 ./lazyansible -i ansible/inventories/local.ini -d ansible/playbooks/
 ```
 
-**Requirements:** Go 1.21+, `ansible-playbook` in `$PATH`.
+**Requirements:** Go 1.22+, `ansible-playbook` in `$PATH`.
+
+## Release (maintainers)
+
+Update `CHANGELOG.md`, then from the repo root:
+
+```bash
+./scripts/release.sh 1.2.3              # prompts for confirmation
+./scripts/release.sh -y 1.2.3           # no prompts (for CI / only use if sure)
+./scripts/release.sh --skip-tag 1.2.3   # commit + push, tag later with --tag-only
+./scripts/release.sh --tag-only 1.2.3   # only creates and pushes the tag (commit already done)
+```
+
+The script runs `gofmt`, `go test`, `go build`, optionally `./bin/golangci-lint`, updates `pkgver` in `packages/aur/PKGBUILD`, does `git add -u`, commits with `chore: release v…`, pushes the branch, creates an annotated tag, and pushes the tag. After the GitHub Release, update the AUR manually (see instructions at the end of the script).
+
+A personal copy in `./release.sh` is ignored by git (see `.gitignore`).
 
 ## Code Style
 

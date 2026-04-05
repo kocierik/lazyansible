@@ -166,7 +166,10 @@ func (a *App) Init() tea.Cmd {
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 
-type inventoryLoadedMsg struct{ inv *core.Inventory }
+type inventoryLoadedMsg struct {
+	inv  *core.Inventory
+	path string // absolute path passed to ansible -i (set after auto-discovery)
+}
 type playbooksLoadedMsg struct{ pbs []*core.Playbook }
 type vaultScanDoneMsg struct{ hasVault bool }
 type lintFinishedMsg struct{ exitCode int }
@@ -224,6 +227,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case inventoryLoadedMsg:
 		a.inventory = msg.inv
 		a.invPanel.SetInventory(msg.inv)
+		if msg.path != "" {
+			a.config.InventoryPath = msg.path
+			a.envSwitchOverlay.Scan(a.config.WorkDir, a.config.InventoryPath)
+		}
 		a.statusMsg = fmt.Sprintf("Inventory: %d hosts, %d groups",
 			len(msg.inv.Hosts), len(msg.inv.Groups))
 
@@ -1812,7 +1819,7 @@ func (a *App) switchInventory(path string) tea.Cmd {
 		if err != nil {
 			return errMsg{err: fmt.Errorf("parse inventory %s: %w", filepath.Base(path), err)}
 		}
-		return inventoryLoadedMsg{inv: inv}
+		return inventoryLoadedMsg{inv: inv, path: path}
 	}
 }
 
@@ -1857,10 +1864,13 @@ func loadInventoryCmd(cfg Config) tea.Cmd {
 		if path == "" {
 			paths := inventory.Discover(cfg.WorkDir)
 			if len(paths) == 0 {
-				return inventoryLoadedMsg{inv: &core.Inventory{
-					Hosts:  make(map[string]*core.Host),
-					Groups: make(map[string]*core.Group),
-				}}
+				return inventoryLoadedMsg{
+					inv: &core.Inventory{
+						Hosts:  make(map[string]*core.Host),
+						Groups: make(map[string]*core.Group),
+					},
+					path: "",
+				}
 			}
 			path = paths[0]
 		}
@@ -1868,7 +1878,7 @@ func loadInventoryCmd(cfg Config) tea.Cmd {
 		if err != nil {
 			return errMsg{err: fmt.Errorf("parse inventory %s: %w", filepath.Base(path), err)}
 		}
-		return inventoryLoadedMsg{inv: inv}
+		return inventoryLoadedMsg{inv: inv, path: path}
 	}
 }
 
